@@ -3,7 +3,7 @@
 name: extract-chicago-permits
 
 on:
-  workflow_dispatch:
+  pull_request:
 
 env:
   WORKING_DIR: chicago
