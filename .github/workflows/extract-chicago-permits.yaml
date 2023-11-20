@@ -4,6 +4,32 @@ name: extract-chicago-permits
 
 on:
   workflow_dispatch:
+    inputs:
+      start_date:
+        type: string
+        description: >
+          A date in YYYY-MM-DD format representing the start of the date range
+          for permits to extract. This value is inclusive, e.g. if it is set to
+          2020-01-01 and a permit was issued on 2020-01-01, that permit will
+          be included in the extract.
+        required: false
+        default: 1900-01-01
+      end_date:
+        type: string
+        description: >
+          A date in YYYY-MM-DD format representing the end of the date range
+          for permits to extract. This value is inclusive, e.g. if it is set to
+          2020-01-01 and a permit was issued on 2020-01-01, that permit will
+          be included in the extract.
+        required: false
+        default: 3000-01-01
+      deduplicate:
+        type: boolean
+        description: >
+          Checks whether permits already exist in our data warehouse and filters
+          out extracted permits with an existing record.
+        required: false
+        default: false
 
 env:
   WORKING_DIR: chicago
