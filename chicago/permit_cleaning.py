@@ -5,7 +5,7 @@ This script automates the current process for cleaning permit data from the Chic
 and preparing it for upload to iasWorld via Smartfile. This involves fetching the data, cleaning up certain fields, 
 organizing columns to match the Smartfile template, and batching the data into csv files of 200 rows each. This process
 also splits off data that is ready for upload from data that still needs some manual review before upload, saving each
-in separate csvs in separate folders. Data that need review are split into two categories and corresponding folderes/files:
+in separate csvs in separate folders. Data that need review are split into two categories and corresponding folders/files:
 those with quick fixes for fields over character or amount limits, those with more complicated fixes for missing fields.
 """
 
@@ -22,7 +22,7 @@ import math
 
 def download_all_permits():
     # update limit in url below when ready to work with full dataset (as of Nov 17, 2023 dataset has 756,766 rows)
-    url = "https://data.cityofchicago.org/resource/ydr8-5enu.json?$limit=500&$order=issue_date DESC"
+    url = "https://data.cityofchicago.org/resource/ydr8-5enu.json?$limit=5000&$order=issue_date DESC"
     permits_response = requests.get(url)
     permits_response.raise_for_status()
     permits = permits_response.json()
@@ -230,7 +230,7 @@ def save_csv_files(df, max_rows, csv_base_name):
     df_review_empty.index = df_review_empty.index +1
     df_review_empty.index.name = "# [LLINE]"
     file_name_review_empty = os.path.join(folder_for_csv_files_review_empty, csv_base_name + "review_empty.csv")
-    df_review_empty.to_csv(file_name_review_length,index=True)
+    df_review_empty.to_csv(file_name_review_empty, index=True)
 
 
 
