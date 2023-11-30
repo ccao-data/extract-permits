@@ -5,7 +5,8 @@ This script automates the current process for cleaning permit data from the Chic
 and preparing it for upload to iasWorld via Smartfile. This involves fetching the data, cleaning up certain fields, 
 organizing columns to match the Smartfile template, and batching the data into csv files of 200 rows each. This process
 also splits off data that is ready for upload from data that still needs some manual review before upload, saving each
-in separate csvs in separate folders.
+in separate csvs in separate folders. Data that need review are split into two categories and corresponding folders/files:
+those with quick fixes for fields over character or amount limits, those with more complicated fixes for missing fields.
 """
 
 import requests
@@ -13,19 +14,21 @@ import pandas as pd
 from sodapy import Socrata
 from datetime import datetime, timedelta
 import os
+import numpy as np
+import math
 
 
 # DEFINE FUNCTIONS
 
 def download_all_permits():
     # update limit in url below when ready to work with full dataset (as of Nov 17, 2023 dataset has 756,766 rows)
-    url = "https://data.cityofchicago.org/resource/ydr8-5enu.json?$limit=5000"
+    url = "https://data.cityofchicago.org/resource/ydr8-5enu.json?$limit=5000&$order=issue_date DESC"
     permits_response = requests.get(url)
-    print("status code: ", permits_response.status_code)
-    print("Headers: ", permits_response.headers.get("Content-Type"))
+    permits_response.raise_for_status()
     permits = permits_response.json()
     permits_df = pd.DataFrame(permits)
     return permits_df
+
 
 
 def expand_multi_pin_permits(df):
@@ -33,7 +36,7 @@ def expand_multi_pin_permits(df):
     Data from the Chicago open data permits table (data this script works with) has rows uniquely identified by permit number.
     Permits can apply to multiple PINs, with additional PINs recorded in the PIN2 - PIN10 fields.
     We want rows that are uniquely identified by PIN and permit number. 
-    This function creates new rows for each additional PIN in multi-PIN permits and saved the relevant PIN in pin_solo.
+    This function creates new rows for each additional PIN in multi-PIN permits and saves the relevant PIN in pin_solo.
     """    
     # the downloaded dataframe will not include any pin columns that are completely blank, so check for existing ones here
     all_pin_columns = ["pin1", "pin2", "pin3", "pin4", "pin5", "pin6", "pin7", "pin8", "pin9", "pin10"]
@@ -41,18 +44,14 @@ def expand_multi_pin_permits(df):
     extra_pins = [pin for pin in pin_columns if pin != "pin1"]
     non_pin_columns = [col for col in df.columns if col not in pin_columns]
 
-    print("number of not NA values in pin2 - pin7 fields: ", df[extra_pins].notna().sum().sum())
-    print("starting number of rows: ", len(df)) 
     melted_df = pd.melt(df, id_vars=non_pin_columns, value_vars=pin_columns, var_name="pin_type", value_name="solo_pin")
-    print("number of rows after melting before removing NaNs: ", len(melted_df))
     
     # keep rows with NA for pin1, filter out rows with NA for other pins
     melted_df = melted_df[(melted_df["pin_type"] == "pin1") | ((melted_df["pin_type"] != "pin1") & melted_df["solo_pin"].notna())]
-    print("number of rows after removing NaNs: ", len(melted_df))
     
     # order rows by permit number then pin type (so pins will be in order of their assigned numbering in permit table, not necessarily by pin number)
     melted_df = melted_df.sort_values(by=["permit_", "pin_type"]).reset_index(drop=True)
-    
+
     return melted_df
 
 
@@ -74,7 +73,7 @@ def organize_columns(df):
     df["issue_date"] = pd.to_datetime(df["issue_date"], format="%Y-%m-%dT%H:%M:%S.%f", errors='coerce').dt.strftime("%-m/%-d/%Y")
 
     column_renaming_dict = {
-        "pin14": "PIN* [PARID]",
+        "pin_final": "PIN* [PARID]",
         "permit_": "Local Permit No.* [USER28]",
         "issue_date": "Issue Date* [PERMDT]",
         "reported_cost": "Amount* [AMOUNT]",
@@ -108,12 +107,10 @@ def organize_columns(df):
 
     data_all_cols = data_renamed.assign(**{col: None for col in column_order if col not in data_renamed})
     data_ordered = data_all_cols[column_order]
-    
+
     return data_ordered
 
 
-
-# if possible to code, Will has also seen times when applicant name is listed twice pushing the field over the limit
 def flag_fix_long_fields(df):
     # will use these abbreviations to shorten applicant name field (Applicant* [USER21]) within 50 character field limit 
     name_shortening_dict = {
@@ -134,88 +131,107 @@ def flag_fix_long_fields(df):
         "PLAZA":        "PLZ"
 }
   
-    # flag rows that had changes made to Applicant name
-    df["FLAG, SHORTENED: Applicant Name"] = df["Applicant* [USER21]"].apply(lambda text: 0 if pd.isna(text) else (1 if len(str(text)) > 50 else 0))
     df["Applicant* [USER21]"] = df["Applicant* [USER21]"].replace(name_shortening_dict, regex=True)
-    # flag rows that are still too long after substititions and need manual review
-    df["FLAG, LENGTH: Applicant Name"] = df["Applicant* [USER21]"].apply(lambda text: 0 if pd.isna(text) else (1 if len(text) > 50 else 0))
     
-    # flag other fields over character limit for manual review
-    df["FLAG, LENGTH: Permit Number"] = df["Local Permit No.* [USER28]"].apply(lambda number: 0 if pd.isna(number) else (1 if len(str(number)) > 18 else 0))
-    df["FLAG, LENGTH: Applicant Street Address"] = df["Applicant Street Address* [ADDR1]"].apply(lambda text: 0 if pd.isna(text) else (1 if len(text) > 40 else 0))
-    df["FLAG, LENGTH: Applicant City State Zip"] = df["Applicant City, State, Zip* [ADDR3]"].apply(lambda text: 0 if pd.isna(text) else (1 if len(text) > 28 else 0))
-    df["FLAG, LENGTH: Note1"] = df["Notes [NOTE1]"].apply(lambda text: 0 if pd.isna(text) else (1 if len(text) > 2000 else 0))
+    df["FLAG COMMENTS"] = "" # will append written comments into this column
+
+    # these fields have the following character limits in Smartfile / iasWorld, flag if over limit
+    long_fields_to_flag = [
+        ("FLAG, LENGTH: Applicant Name", "Applicant* [USER21]", 50, "Applicant* [USER21] over 50 char limit by "),
+        ("FLAG, LENGTH: Permit Number", "Local Permit No.* [USER28]", 18, "Local Permit No.* [USER28] over 18 char limit by "),
+        ("FLAG, LENGTH: Applicant Street Address", "Applicant Street Address* [ADDR1]", 40, "Applicant Street Address* [ADDR1] over 40 char limit by "),
+        ("FLAG, LENGTH: Note1", "Notes [NOTE1]", 2000, "Notes [NOTE1] over 2000 char limit by ")
+    ]
     
+    for flag_name, column, limit, comment in long_fields_to_flag:
+        df[flag_name] = df[column].apply(lambda val: 0 if pd.isna(val) else (1 if len(str(val)) > limit else 0))
+        df["FLAG COMMENTS"] += df[column].apply(lambda val: "" if pd.isna(val) else ("" if len(str(val)) < limit else comment + str(len(str(val)) - limit) + "; "))
+     
     # round Amount to closest dollar because smart file doesn't accept decimal amounts, then flag values above upper limit
-    print("Before rounding Amount, there are this many nans: ", df["Amount* [AMOUNT]"].isna().sum())
     df["Amount* [AMOUNT]"] = pd.to_numeric(df["Amount* [AMOUNT]"], errors="coerce").round().astype("Int64")
-    print("After rounding Amount, there are this many nans: ", df["Amount* [AMOUNT]"].isna().sum())
     df["FLAG, VALUE: Amount"] = df["Amount* [AMOUNT]"].apply(lambda value: 0 if pd.isna(value) or value <= 2147483647 else 1)
+    df["FLAG COMMENTS"] += df["Amount* [AMOUNT]"].apply(lambda value: "" if pd.isna(value) or value <= 2147483647 else "Amount* [AMOUNT] over value limit of 2147483647; ")
     
     # also flag rows where fields are blank for manual review (for fields we're populating in smartfile template)
-    df["FLAG, EMPTY: PIN"] = df["PIN* [PARID]"].apply(lambda value: 1 if value == "" else 0)
-    df["FLAG, EMPTY: Issue Date"] = df["Issue Date* [PERMDT]"].apply(lambda value: 1 if pd.isna(value) or value.strip() == "" else 0)
-    df["FLAG, EMPTY: Amount"] = df["Amount* [AMOUNT]"].apply(lambda value: 1 if pd.isna(value) or value == "" else 0)
-    # df["FLAG, EMPTY: Submit Dt"] = df["Submit Dt* [CERTDATE]"].apply(lambda value: 1 if pd.isna(value) or value == "" else 0)
-    # (not using this field for now) df["FLAG, EMPTY: Applicant Street Address"] = df["Applicant Street Address* [ADDR1]"].apply(lambda value: 1 if pd.isna(value) or value == "" else 0)
-    df["FLAG, EMPTY: Applicant"] = df["Applicant* [USER21]"].apply(lambda text: 1 if pd.isna(text) or text.strip() == "" else 0)
-    df["FLAG, EMPTY: Local Permit No"] = df["Local Permit No.* [USER28]"].apply(lambda value: 1 if pd.isna(value) or value == "" else 0)
-    df["FLAG, EMPTY: Note1"] = df["Notes [NOTE1]"].apply(lambda text: 1 if pd.isna(text) or text.strip() == "" else 0)
+    empty_fields_to_flag = [
+        ("FLAG, EMPTY: PIN", "PIN* [PARID]"),
+        ("FLAG, EMPTY: Issue Date", "Issue Date* [PERMDT]"),
+        ("FLAG, EMPTY: Amount", "Amount* [AMOUNT]"),
+        ("FLAG, EMPTY: Applicant", "Applicant* [USER21]"),
+        ("FLAG, EMPTY: Applicant Street Address", "Applicant Street Address* [ADDR1]"),
+        ("FLAG, EMPTY: Permit Number", "Local Permit No.* [USER28]"),
+        ("FLAG, EMPTY: Note1", "Notes [NOTE1]")
+        ]
 
-    # create column for total number of flags per row for easy division of data into smartfile ready and needing manual review
-    df["FLAGS, TOTAL"] = df.filter(like="FLAG").sum(axis=1)
-    # think about whether I want flags for PINs to be included in my total flags measure, might want to deal with them separately since there are so many....
+    for flag_name, column in empty_fields_to_flag:
+        comment = column + " is missing; "
+        df[flag_name] = df[column].apply(lambda val: 1 if pd.isna(val) or str(val).strip() == "" else 0)
+        df["FLAG COMMENTS"] += df[flag_name].apply(lambda val: "" if val == 0 else comment)
+
+    # create columns for total number of flags for length and for missingness since they'll get sorted into separate csv files
+    df["FLAGS, TOTAL - LENGTH/VALUE"] = df.filter(like="FLAG, LENGTH").values.sum(axis=1) + df.filter(like="FLAG, VALUE").values.sum(axis=1)
+    df["FLAGS, TOTAL - EMPTY"] = df.filter(like="FLAG, EMPTY").values.sum(axis=1)
+
+    # need a column that identifies rows with flags for field length/amount but no flags for emptiness
+    df["MANUAL REVIEW"] = np.where((df["FLAGS, TOTAL - EMPTY"] == 0) & (df["FLAGS, TOTAL - LENGTH/VALUE"] > 0), 1, 0)
+    
     return df
 
 
 
 def gen_csv_base_name():
     today = datetime.today().date()
-    print("today: ", today)
-    first_day_current_month = today.replace(day=1)
-    print("first day current month: ", first_day_current_month)
-    last_day_previous_month = first_day_current_month - timedelta(days=1)
-    print("last day previous month: ", last_day_previous_month)
-    previous_month_year = last_day_previous_month.strftime("%Y_%m")
-    print("previous month and year: ", previous_month_year)
-    csv_name = previous_month_year + "_permits_"
+    today_string = today.strftime("%Y_%m_%d")
+    csv_name = today_string + "_permits_"
     return csv_name
 
 
 def save_csv_files(df, max_rows, csv_base_name):
-    # separate rows that are ready for upload from ones that need manual review
-    df_ready = df[df["FLAGS, TOTAL"] == 0]  
-    df_ready = df_ready.drop(columns=df_ready.filter(like="FLAG").columns)
-    df_review = df[df["FLAGS, TOTAL"] > 0]
+    # separate rows that are ready for upload from ones that need manual review or have missing PINs
+    df_ready = df[(df["FLAGS, TOTAL - LENGTH/VALUE"] == 0) & (df["FLAGS, TOTAL - EMPTY"] == 0)].reset_index().drop(columns=["index"])  
+    df_ready = df_ready.drop(columns=df_ready.filter(like="FLAG").columns).drop(columns=["MANUAL REVIEW"])
+    
+    df_review_length = df[df["MANUAL REVIEW"] == 1].drop(columns=["MANUAL REVIEW"]).reset_index().drop(columns=["index"])
+    df_review_length = df_review_length.drop(columns=df_review_length.filter(like="FLAG, EMPTY")).drop(columns=["FLAGS, TOTAL - EMPTY"])
+    
+    df_review_empty = df[df["FLAGS, TOTAL - EMPTY"] > 0].reset_index().drop(columns=["index", "MANUAL REVIEW"]) 
 
-    # create new folders with today's date to save csv files in
+    print("df_ready length: ", len(df_ready))
+    print("df_review_length length: ", len(df_review_length))
+    print("df_review_empty length: ", len(df_review_empty))
+
+    # create new folders with today's date to save csv files in (1 each for ready, needing manual shortening of fields, have missing fields)
     folder_for_csv_files_ready = datetime.today().date().strftime("csvs_for_smartfile_%Y_%m_%d")
     os.makedirs(folder_for_csv_files_ready, exist_ok=True) # note this will override an existing folder with same name
-    folder_for_csv_files_review = datetime.today().date().strftime("csvs_for_review_%Y_%m_%d")
-    os.makedirs(folder_for_csv_files_review, exist_ok=True) # note this will override an existing folder with same name
+    folder_for_csv_files_review_length = datetime.today().date().strftime("csvs_for_review_length_%Y_%m_%d")
+    os.makedirs(folder_for_csv_files_review_length, exist_ok=True) # note this will override an existing folder with same name
+    folder_for_csv_files_review_empty = datetime.today().date().strftime("csvs_for_review_empty_%Y_%m_%d")
+    os.makedirs(folder_for_csv_files_review_empty, exist_ok=True) # note this will override an existing folder with same name
 
+    # save ready permits batched into 200 permits max per csv file
     num_files_ready = len(df_ready) // max_rows + 1
+    print("creating " + str(num_files_ready) + " csv files ready for smartfile upload")
     for i in range(num_files_ready):
         start_index = i * max_rows
         end_index = (i + 1) * max_rows
-        file_dataframe = df_ready.iloc[start_index:end_index]
+        file_dataframe = df_ready.iloc[start_index:end_index].copy()
+        file_dataframe.reset_index(drop=True, inplace=True) # each csv needs an index from 1 to 200
         file_dataframe.index = file_dataframe.index + 1
         file_dataframe.index.name = "# [LLINE]"
         file_name = os.path.join(folder_for_csv_files_ready, csv_base_name + f"ready_{i+1}.csv")
-        print("file name: ", file_name)
         file_dataframe.to_csv(file_name, index=True)
 
-    
-    num_files_review = len(df_review) // max_rows + 1
-    for i in range(num_files_review):
-        start_index = i * max_rows
-        end_index = (i + 1) * max_rows
-        file_dataframe = df_review.iloc[start_index:end_index]
-        file_dataframe.index = file_dataframe.index + 1
-        file_dataframe.index.name = "# [LLINE]"
-        file_name = os.path.join(folder_for_csv_files_review, csv_base_name + f"review_{i+1}.csv")
-        print("file name: ", file_name)
-        file_dataframe.to_csv(file_name, index=True)
+    # permits needing manual field shortening and those with missing fields will be saved as single csvs, not batched by 200 rows
+    df_review_length.index = df_review_length.index + 1
+    df_review_length.index.name = "# [LLINE]"
+    file_name_review_length = os.path.join(folder_for_csv_files_review_length, csv_base_name + "review_length.csv")
+    df_review_length.to_csv(file_name_review_length, index=True)
+
+    df_review_empty.index = df_review_empty.index +1
+    df_review_empty.index.name = "# [LLINE]"
+    file_name_review_empty = os.path.join(folder_for_csv_files_review_empty, csv_base_name + "review_empty.csv")
+    df_review_empty.to_csv(file_name_review_empty, index=True)
+
 
 
 
@@ -225,7 +241,7 @@ def save_csv_files(df, max_rows, csv_base_name):
 permits = download_all_permits()
 
 permits_expanded = expand_multi_pin_permits(permits)
-
+print("df expanded length: ", len(permits_expanded))
 permits_pin = format_pin(permits_expanded)
 
 permits_renamed = organize_columns(permits_pin)
@@ -233,5 +249,5 @@ permits_renamed = organize_columns(permits_pin)
 permits_shortened = flag_fix_long_fields(permits_renamed)
 
 csv_base_name = gen_csv_base_name()
-save_csv_files(permits_shortened, 200, csv_base_name)
 
+save_csv_files(permits_shortened, 200, csv_base_name)
