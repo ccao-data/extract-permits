@@ -1,0 +1,122 @@
+# Workflow that can be manually dispatched to trigger Chicago permit extraction.
+
+name: extract-chicago-permits
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        type: string
+        description: >
+          Start date: A date in YYYY-MM-DD format representing the start of the
+          date range for permits to extract. This value is inclusive, e.g. if
+          it is set to 2020-01-01 and a permit was issued on 2020-01-01, that
+          permit will be included in the extract.
+        required: false
+        default: 1900-01-01
+      end_date:
+        type: string
+        description: >
+          End date: A date in YYYY-MM-DD format representing the end of the date
+          range for permits to extract. This value is also inclusive.
+        required: false
+        default: 3000-01-01
+      deduplicate:
+        type: boolean
+        description: >
+          Deduplicate: Check whether permits already exist in our data
+          warehouse and filter out extracted permits with an existing record.
+        required: false
+        default: false
+
+env:
+  WORKING_DIR: chicago
+  S3_BUCKET: ccao-data-public-us-east-1
+  S3_PREFIX: permits/chicago
+
+jobs:
+  extract-chicago-permits:
+    runs-on: ubuntu-latest
+    # These permissions are needed to interact with GitHub's OIDC Token endpoint
+    # so that we can authenticate with AWS
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout repo code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+          cache: pipenv
+
+      - name: Install pipenv
+        run: pip install pipenv
+        shell: bash
+
+      - name: Install Python requirements
+        run: pipenv install
+        shell: bash
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Extract permits
+        run: pipenv run python3 permit_cleaning.py
+        shell: bash
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Compress permit directories into one file
+        id: compress-permits
+        run: |
+          ZIP_FILENAME="chicago-permits-$(date +%Y%m%d%H%M%S).zip"
+          mkdir chicago-permits
+          mv csvs_for_* chicago-permits/
+          zip -r "$ZIP_FILENAME" chicago-permits
+          echo "filename=$ZIP_FILENAME" >> "$GITHUB_OUTPUT"
+        shell: bash
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_IAM_ROLE_TO_ASSUME_ARN }}
+          aws-region: us-east-1
+
+      - name: Upload compressed permit file to S3
+        id: s3-upload
+        run: |
+          S3_PATH="s3://${S3_BUCKET}/${S3_PREFIX}/${PERMIT_FILENAME}"
+          aws s3 cp "$PERMIT_FILENAME" "$S3_PATH"
+          S3_URL="https://${S3_BUCKET}.s3.amazonaws.com/${S3_PREFIX}/${PERMIT_FILENAME}"
+          echo "Permit file successfully uploaded to S3: $S3_URL"
+          echo "url=$S3_URL" >> "$GITHUB_OUTPUT"
+        shell: bash
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          PERMIT_FILENAME: ${{ steps.compress-permits.outputs.filename }}
+
+      - name: Mask SNS topic ARN
+        # This step is necessary so that AWS doesn't accidentally log the ARN
+        # in case the `aws sns publish` command fails
+        run: echo "::add-mask::${{ secrets.AWS_SNS_TOPIC_ARN }}"
+        shell: bash
+
+      - name: Publish to SNS notification topic
+        run: |
+          SUBJECT="New Chicago permit data for $(date +%d/%m/%Y)"
+          MESSAGE=$(cat <<EOF
+          New Chicago permit data has been extracted on $(date +%d/%m/%Y).
+
+          Download a .zip file containing the permit data here:
+          $S3_URL
+          EOF
+          )
+
+          aws sns publish \
+            --topic-arn "$SNS_TOPIC_ARN" \
+            --subject "$SUBJECT" \
+            --message "$MESSAGE"
+        env:
+          S3_URL: ${{ steps.s3-upload.outputs.url }}
+          SNS_TOPIC_ARN: ${{ secrets.AWS_SNS_TOPIC_ARN }}
