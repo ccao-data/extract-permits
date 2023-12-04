@@ -3,22 +3,41 @@ Chicago Permit Ingest Process - Automation
 
 This script automates the current process for cleaning permit data from the Chicago Data Portal's Building Permits table
 and preparing it for upload to iasWorld via Smartfile. This involves fetching the data, cleaning up certain fields, 
-organizing columns to match the Smartfile template, and batching the data into csv files of 200 rows each. This process
+organizing columns to match the Smartfile template, and batching the data into Excel workbooks of 200 rows each. This process
 also splits off data that is ready for upload from data that still needs some manual review before upload, saving each
-in separate csvs in separate folders. Data that need review are split into two categories and corresponding folders/files:
+in separate Excel workbooks in separate folders. Data that need review are split into two categories and corresponding folders/files:
 those with quick fixes for fields over character or amount limits, those with more complicated fixes for missing fields.
 """
 
 import requests
 import pandas as pd
-from sodapy import Socrata
-from datetime import datetime, timedelta
 import os
 import numpy as np
 import math
+from pyathena import connect
+from pyathena.pandas.util import as_pandas
+from datetime import datetime, timedelta
 
 
 # DEFINE FUNCTIONS
+
+# Connect to Athena and download existing 14-digit PINs in Chicago
+def pull_existing_pins_from_athena():
+    print("Pulling PINs from Athena")
+    conn = connect(
+        s3_staging_dir=os.getenv("AWS_ATHENA_S3_STAGING_DIR"),
+        region_name=os.getenv("AWS_REGION"),
+    )
+
+    SQL_QUERY = "SELECT  pin, pin10 FROM default.vw_pin_universe WHERE triad_name='City' AND year='2023';"
+    
+    cursor = conn.cursor()
+    cursor.execute(SQL_QUERY)
+    chicago_pin_universe = as_pandas(cursor)
+    chicago_pin_universe.to_csv("chicago_pin_universe.csv", index=False)
+
+    return chicago_pin_universe 
+    
 
 def download_all_permits():
     # update limit in url below when ready to work with full dataset (as of Nov 17, 2023 dataset has 756,766 rows)
@@ -28,7 +47,6 @@ def download_all_permits():
     permits = permits_response.json()
     permits_df = pd.DataFrame(permits)
     return permits_df
-
 
 
 def expand_multi_pin_permits(df):
@@ -41,7 +59,6 @@ def expand_multi_pin_permits(df):
     # the downloaded dataframe will not include any pin columns that are completely blank, so check for existing ones here
     all_pin_columns = ["pin1", "pin2", "pin3", "pin4", "pin5", "pin6", "pin7", "pin8", "pin9", "pin10"]
     pin_columns = [col for col in df.columns if col in all_pin_columns]
-    extra_pins = [pin for pin in pin_columns if pin != "pin1"]
     non_pin_columns = [col for col in df.columns if col not in pin_columns]
 
     melted_df = pd.melt(df, id_vars=non_pin_columns, value_vars=pin_columns, var_name="pin_type", value_name="solo_pin")
@@ -61,6 +78,7 @@ def format_pin(df):
     df["pin_final"] = df["solo_pin"].astype(str).str.replace("-", "")
     # add zeros to 10-digit PINs to transform into 14-digits PINs
     df["pin_final"] = df["pin_final"].apply(lambda x: x + "0000" if len(x) == 10 else x if x != "nan" else "")
+    df["NOTE: 0000 added to PIN?"] = df["pin_final"].apply(lambda x: "Yes" if len(x) == 10 else "No")
     return df
 
 
@@ -68,11 +86,13 @@ def format_pin(df):
 def organize_columns(df):
 
     address_columns = ["street_number", "street_direction", "street_name", "suffix"]
-    df["Address"] = df[address_columns].astype(str).fillna("").agg(" ".join, axis=1)
+    df[address_columns] = df[address_columns].fillna("")
+    df["Address"] = df[address_columns].astype(str).agg(" ".join, axis=1)
 
     df["issue_date"] = pd.to_datetime(df["issue_date"], format="%Y-%m-%dT%H:%M:%S.%f", errors='coerce').dt.strftime("%-m/%-d/%Y")
 
     column_renaming_dict = {
+        "solo_pin": "Original PIN",
         "pin_final": "PIN* [PARID]",
         "permit_": "Local Permit No.* [USER28]",
         "issue_date": "Issue Date* [PERMDT]",
@@ -85,7 +105,8 @@ def organize_columns(df):
     data_relevant = df[[col for col in df.columns if col in column_renaming_dict]]
     data_renamed = data_relevant.rename(columns=column_renaming_dict)
  
-    column_order = ["PIN* [PARID]",	
+    column_order = ["Original PIN", # will keep original PIN column for rows flagged for invalid PINs
+                    "PIN* [PARID]",	
                     "Local Permit No.* [USER28]",	
                     "Issue Date* [PERMDT]",	
                     "Desc 1* [DESC1]",
@@ -103,12 +124,36 @@ def organize_columns(df):
                     "Occupy Dt [UDATE1]",	
                     "Submit Dt* [CERTDATE]",	
                     "Est Comp Dt [UDATE2]"
-    ]
+                    ]
 
     data_all_cols = data_renamed.assign(**{col: None for col in column_order if col not in data_renamed})
     data_ordered = data_all_cols[column_order]
 
     return data_ordered
+
+
+# flag invalid PINs for review by analysts
+def flag_invalid_pins(df, valid_pins):
+    df["FLAG COMMENTS"] = ""
+
+    # invalid 14-digit PIN flag
+    valid_pins["pin"] = valid_pins["pin"].astype(str)
+    df["FLAG, INVALID: PIN* [PARID]"] = np.where(df["PIN* [PARID]"] == "", 0, ~df["PIN* [PARID]"].isin(valid_pins["pin"]))
+    
+    # also check if 10-digit PINs are valid to narrow down on problematic portion of invalid PINs
+    df["pin_10digit"] = df["PIN* [PARID]"].astype(str).str[:10] 
+    df["FLAG, INVALID: pin_10digit"] = np.where(df["pin_10digit"] == "", 0, df["pin_10digit"].isin(valid_pins["pin10"]))
+    
+    # create variable that is the numbers following the 10-digit PIN 
+    # (not pulling last 4 digits from the end in case there are PINs that are not 14-digits in Chicago permit data)
+    df["pin_suffix"] = df["PIN* [PARID]"].astype(str).str[10:]
+
+    # comment for rows with invalid pin
+    df["FLAG COMMENTS"] += df["FLAG, INVALID: PIN* [PARID]"].apply(lambda val: "" if val == 0 else "PIN* [PARID] is invalid, see Original PIN for raw form; ")
+    df["FLAG COMMENTS"] += df["FLAG, INVALID: pin_10digit"].apply(lambda val: "" if val == 0 else "10-digit PIN is invalid; ")
+
+    return df
+
 
 
 def flag_fix_long_fields(df):
@@ -133,8 +178,6 @@ def flag_fix_long_fields(df):
   
     df["Applicant* [USER21]"] = df["Applicant* [USER21]"].replace(name_shortening_dict, regex=True)
     
-    df["FLAG COMMENTS"] = "" # will append written comments into this column
-
     # these fields have the following character limits in Smartfile / iasWorld, flag if over limit
     long_fields_to_flag = [
         ("FLAG, LENGTH: Applicant Name", "Applicant* [USER21]", 50, "Applicant* [USER21] over 50 char limit by "),
@@ -168,86 +211,105 @@ def flag_fix_long_fields(df):
         df[flag_name] = df[column].apply(lambda val: 1 if pd.isna(val) or str(val).strip() == "" else 0)
         df["FLAG COMMENTS"] += df[flag_name].apply(lambda val: "" if val == 0 else comment)
 
-    # create columns for total number of flags for length and for missingness since they'll get sorted into separate csv files
+    # create columns for total number of flags for length and for missingness since they'll get sorted into separate excel files
     df["FLAGS, TOTAL - LENGTH/VALUE"] = df.filter(like="FLAG, LENGTH").values.sum(axis=1) + df.filter(like="FLAG, VALUE").values.sum(axis=1)
-    df["FLAGS, TOTAL - EMPTY"] = df.filter(like="FLAG, EMPTY").values.sum(axis=1)
+    df["FLAGS, TOTAL - EMPTY/INVALID"] = df.filter(like="FLAG, EMPTY").values.sum(axis=1) + df.filter(like="FLAG, INVALID").values.sum(axis=1)
 
-    # need a column that identifies rows with flags for field length/amount but no flags for emptiness
-    df["MANUAL REVIEW"] = np.where((df["FLAGS, TOTAL - EMPTY"] == 0) & (df["FLAGS, TOTAL - LENGTH/VALUE"] > 0), 1, 0)
+    # need a column that identifies rows with flags for field length/amount but no flags for emptiness/invalidness 
+    # since these two categories will get split into separate excel workbooks
+    df["MANUAL REVIEW"] = np.where((df["FLAGS, TOTAL - EMPTY/INVALID"] == 0) & (df["FLAGS, TOTAL - LENGTH/VALUE"] > 0), 1, 0)
     
+    # for ease of analysts viewing, edits flag columns to read "Yes" when row is flagged and blank otherwise (easier than columns of 0s and 1s)
+    flag_columns = list(df.filter(like="FLAG, LENGTH").columns) + list(df.filter(like="FLAG, VALUE").columns) + list(df.filter(like="FLAG, EMPTY").columns) + list(df.filter(like="FLAG, INVALID").columns)
+    df[flag_columns] = df[flag_columns].replace({0: "", 1: "Yes"})
+
     return df
 
 
 
-def gen_csv_base_name():
+def gen_file_base_name():
     today = datetime.today().date()
     today_string = today.strftime("%Y_%m_%d")
-    csv_name = today_string + "_permits_"
-    return csv_name
+    file_name = today_string + "_permits_"
+    return file_name
 
 
-def save_csv_files(df, max_rows, csv_base_name):
-    # separate rows that are ready for upload from ones that need manual review or have missing PINs
-    df_ready = df[(df["FLAGS, TOTAL - LENGTH/VALUE"] == 0) & (df["FLAGS, TOTAL - EMPTY"] == 0)].reset_index().drop(columns=["index"])  
-    df_ready = df_ready.drop(columns=df_ready.filter(like="FLAG").columns).drop(columns=["MANUAL REVIEW"])
+def save_xlsx_files(df, max_rows, file_base_name):
+    # separate rows that are ready for upload from ones that need manual review or have missing or invalid PINs
+    df_ready = df[(df["FLAGS, TOTAL - LENGTH/VALUE"] == 0) & (df["FLAGS, TOTAL - EMPTY/INVALID"] == 0)].reset_index()
+    df_ready = df_ready.drop(columns=df_ready.filter(like="FLAG").columns).\
+        drop(columns=["index", "Original PIN", "MANUAL REVIEW", "pin_10digit", "pin_suffix"])
     
-    df_review_length = df[df["MANUAL REVIEW"] == 1].drop(columns=["MANUAL REVIEW"]).reset_index().drop(columns=["index"])
-    df_review_length = df_review_length.drop(columns=df_review_length.filter(like="FLAG, EMPTY")).drop(columns=["FLAGS, TOTAL - EMPTY"])
+    df_review_length = df[df["MANUAL REVIEW"] == 1].reset_index()
+    df_review_length = df_review_length.drop(columns=df_review_length.filter(like="FLAG, EMPTY")).\
+        drop(columns=df_review_length.filter(like="FLAG, INVALID")).\
+        drop(columns=["Original PIN", "FLAGS, TOTAL - EMPTY/INVALID", "index", "MANUAL REVIEW", "pin_10digit", "pin_suffix"])
     
-    df_review_empty = df[df["FLAGS, TOTAL - EMPTY"] > 0].reset_index().drop(columns=["index", "MANUAL REVIEW"]) 
+    df_review_empty_invalid = df[df["FLAGS, TOTAL - EMPTY/INVALID"] > 0].reset_index().\
+        drop(columns=["index", "MANUAL REVIEW", "pin_10digit", "pin_suffix"]) 
 
     print("df_ready length: ", len(df_ready))
     print("df_review_length length: ", len(df_review_length))
-    print("df_review_empty length: ", len(df_review_empty))
+    print("df_review_empty_invalid length: ", len(df_review_empty_invalid))
 
-    # create new folders with today's date to save csv files in (1 each for ready, needing manual shortening of fields, have missing fields)
-    folder_for_csv_files_ready = datetime.today().date().strftime("csvs_for_smartfile_%Y_%m_%d")
-    os.makedirs(folder_for_csv_files_ready, exist_ok=True) # note this will override an existing folder with same name
-    folder_for_csv_files_review_length = datetime.today().date().strftime("csvs_for_review_length_%Y_%m_%d")
-    os.makedirs(folder_for_csv_files_review_length, exist_ok=True) # note this will override an existing folder with same name
-    folder_for_csv_files_review_empty = datetime.today().date().strftime("csvs_for_review_empty_%Y_%m_%d")
-    os.makedirs(folder_for_csv_files_review_empty, exist_ok=True) # note this will override an existing folder with same name
+    # create new folders with today's date to save xlsx files in (1 each for ready, needing manual shortening of fields, have missing fields or invalid PIN)
+    folder_for_files_ready = datetime.today().date().strftime("files_for_smartfile_%Y_%m_%d")
+    os.makedirs(folder_for_files_ready, exist_ok=True) # note this will override an existing folder with same name
+    folder_for_files_review_length = datetime.today().date().strftime("files_for_review_length_%Y_%m_%d")
+    os.makedirs(folder_for_files_review_length, exist_ok=True) # note this will override an existing folder with same name
+    folder_for_files_review_empty_invalid = datetime.today().date().strftime("files_for_review_empty_invalid_%Y_%m_%d")
+    os.makedirs(folder_for_files_review_empty_invalid, exist_ok=True) # note this will override an existing folder with same name
 
-    # save ready permits batched into 200 permits max per csv file
-    num_files_ready = len(df_ready) // max_rows + 1
-    print("creating " + str(num_files_ready) + " csv files ready for smartfile upload")
+    # save ready permits batched into 200 permits max per excel file
+    num_files_ready = math.ceil(len(df_ready) / max_rows)
+    print("creating " + str(num_files_ready) + " xlsx files ready for smartfile upload")
     for i in range(num_files_ready):
         start_index = i * max_rows
         end_index = (i + 1) * max_rows
         file_dataframe = df_ready.iloc[start_index:end_index].copy()
-        file_dataframe.reset_index(drop=True, inplace=True) # each csv needs an index from 1 to 200
+        file_dataframe.reset_index(drop=True, inplace=True) # each xlsx file needs an index from 1 to 200
         file_dataframe.index = file_dataframe.index + 1
         file_dataframe.index.name = "# [LLINE]"
-        file_name = os.path.join(folder_for_csv_files_ready, csv_base_name + f"ready_{i+1}.csv")
-        file_dataframe.to_csv(file_name, index=True)
+        file_dataframe = file_dataframe.reset_index()
+        file_name = os.path.join(folder_for_files_ready, file_base_name + f"ready_{i+1}.xlsx")
+        file_dataframe.to_excel(file_name, index=False, engine="xlsxwriter")
 
-    # permits needing manual field shortening and those with missing fields will be saved as single csvs, not batched by 200 rows
+    # permits needing manual field shortening and those with missing fields will be saved as single xlsx files, not batched by 200 rows
     df_review_length.index = df_review_length.index + 1
     df_review_length.index.name = "# [LLINE]"
-    file_name_review_length = os.path.join(folder_for_csv_files_review_length, csv_base_name + "review_length.csv")
-    df_review_length.to_csv(file_name_review_length, index=True)
+    df_review_length = df_review_length.reset_index()
+    file_name_review_length = os.path.join(folder_for_files_review_length, file_base_name + "review_length.xlsx")
+    df_review_length.to_excel(file_name_review_length, index=False, engine="xlsxwriter")
 
-    df_review_empty.index = df_review_empty.index +1
-    df_review_empty.index.name = "# [LLINE]"
-    file_name_review_empty = os.path.join(folder_for_csv_files_review_empty, csv_base_name + "review_empty.csv")
-    df_review_empty.to_csv(file_name_review_empty, index=True)
+    df_review_empty_invalid.index = df_review_empty_invalid.index +1
+    df_review_empty_invalid.index.name = "# [LLINE]"
+    df_review_empty_invalid = df_review_empty_invalid.reset_index()
+    file_name_review_empty_invalid = os.path.join(folder_for_files_review_empty_invalid, file_base_name + "review_empty_invalid.xlsx")
+    df_review_empty_invalid.to_excel(file_name_review_empty_invalid, index=False, engine="xlsxwriter")
 
 
 
 
 
 # CALL FUNCTIONS
+if os.path.exists("chicago_pin_universe.csv"):
+    print("Loading Chicago PIN universe data from csv.")
+    chicago_pin_universe = pd.read_csv("chicago_pin_universe.csv")
+else:
+    pull_existing_pins_from_athena()
 
 permits = download_all_permits()
 
 permits_expanded = expand_multi_pin_permits(permits)
-print("df expanded length: ", len(permits_expanded))
+
 permits_pin = format_pin(permits_expanded)
 
-permits_renamed = organize_columns(permits_pin)
+permits_renamed = organize_columns(permits_expanded)
 
-permits_shortened = flag_fix_long_fields(permits_renamed)
+permits_validated = flag_invalid_pins(permits_renamed, chicago_pin_universe)
 
-csv_base_name = gen_csv_base_name()
+permits_shortened = flag_fix_long_fields(permits_validated)
 
-save_csv_files(permits_shortened, 200, csv_base_name)
+file_base_name = gen_file_base_name()
+
+save_xlsx_files(permits_shortened, 200, file_base_name)
