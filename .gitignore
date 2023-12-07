@@ -160,4 +160,6 @@ cython_debug/
 #.idea/
 
 # Ignore generated data
-chicago/csvs_for_*
+chicago/files_for_*
+chicago/chicago_pin_universe.csv
+
