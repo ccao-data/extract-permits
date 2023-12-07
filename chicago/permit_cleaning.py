@@ -2,11 +2,19 @@
 Chicago Permit Ingest Process - Automation
 
 This script automates the current process for cleaning permit data from the Chicago Data Portal's Building Permits table
-and preparing it for upload to iasWorld via Smartfile. This involves fetching the data, cleaning up certain fields, 
-organizing columns to match the Smartfile template, and batching the data into Excel workbooks of 200 rows each. This process
+and preparing it for upload to iasWorld via SmartFile. This involves fetching the data, cleaning up certain fields, 
+organizing columns to match the SmartFile template, and batching the data into Excel workbooks of 200 rows each. This process
 also splits off data that is ready for upload from data that still needs some manual review before upload, saving each
 in separate Excel workbooks in separate folders. Data that need review are split into two categories and corresponding folders/files:
-those with quick fixes for fields over character or amount limits, those with more complicated fixes for missing fields.
+those with quick fixes for fields over character or amount limits, and those with more complicated fixes for missing and/or invalid fields.
+
+The following environment variables need to be set before running this script:
+    AWS_ATHENA_S3_STAGING_DIR=s3://ccao-athena-results-us-east-1
+    AWS_REGION=us-east-1
+
+The following will also need to be updated:
+    - At the beginning of each year: update year to current year in SQL_QUERY inside pull_existing_pins_from_athena() function
+    - Update limit as desired in the url in the download_all_permits() function (currently set at 5000 rows for testing purposes) 
 """
 
 import requests
@@ -16,7 +24,7 @@ import numpy as np
 import math
 from pyathena import connect
 from pyathena.pandas.util import as_pandas
-from datetime import datetime, timedelta
+from datetime import datetime
 
 
 # DEFINE FUNCTIONS
@@ -40,7 +48,7 @@ def pull_existing_pins_from_athena():
     
 
 def download_all_permits():
-    # update limit in url below when ready to work with full dataset (as of Nov 17, 2023 dataset has 756,766 rows)
+    # update limit in url below when ready to work with full dataset (as of Dec 7, 2023 dataset has 757,677 rows)
     url = "https://data.cityofchicago.org/resource/ydr8-5enu.json?$limit=5000&$order=issue_date DESC"
     permits_response = requests.get(url)
     permits_response.raise_for_status()
@@ -248,9 +256,9 @@ def save_xlsx_files(df, max_rows, file_base_name):
     df_review_empty_invalid = df[df["FLAGS, TOTAL - EMPTY/INVALID"] > 0].reset_index().\
         drop(columns=["index", "MANUAL REVIEW", "pin_10digit", "pin_suffix"]) 
 
-    print("df_ready length: ", len(df_ready))
-    print("df_review_length length: ", len(df_review_length))
-    print("df_review_empty_invalid length: ", len(df_review_empty_invalid))
+    print("# rows ready for upload: ", len(df_ready))
+    print("# rows flagged for length: ", len(df_review_length))
+    print("# rows flagged for empty/invalid fields: ", len(df_review_empty_invalid))
 
     # create new folders with today's date to save xlsx files in (1 each for ready, needing manual shortening of fields, have missing fields or invalid PIN)
     folder_for_files_ready = datetime.today().date().strftime("files_for_smartfile_%Y_%m_%d")
@@ -262,7 +270,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
 
     # save ready permits batched into 200 permits max per excel file
     num_files_ready = math.ceil(len(df_ready) / max_rows)
-    print("creating " + str(num_files_ready) + " xlsx files ready for smartfile upload")
+    print("creating " + str(num_files_ready) + " xlsx files ready for SmartFile upload")
     for i in range(num_files_ready):
         start_index = i * max_rows
         end_index = (i + 1) * max_rows
@@ -296,7 +304,7 @@ if os.path.exists("chicago_pin_universe.csv"):
     print("Loading Chicago PIN universe data from csv.")
     chicago_pin_universe = pd.read_csv("chicago_pin_universe.csv")
 else:
-    pull_existing_pins_from_athena()
+    chicago_pin_universe = pull_existing_pins_from_athena()
 
 permits = download_all_permits()
 
