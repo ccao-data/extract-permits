@@ -2,7 +2,7 @@
 Chicago Permit Ingest Process - Automation
 
 This script automates the current process for cleaning permit data from the Chicago Data Portal's Building Permits table
-and preparing it for upload to iasWorld via SmartFile. This involves fetching the data, cleaning up certain fields, 
+and preparing it for upload to iasWorld via SmartFile. This involves fetching the data, cleaning up certain fields,
 organizing columns to match the SmartFile template, and batching the data into Excel workbooks of 200 rows each. This process
 also splits off data that is ready for upload from data that still needs some manual review before upload, saving each
 in separate Excel workbooks in separate folders. Data that need review are split into two categories and corresponding folders/files:
@@ -14,7 +14,7 @@ The following environment variables need to be set before running this script:
 
 The following will also need to be updated:
     - At the beginning of each year: update year to current year in SQL_QUERY inside pull_existing_pins_from_athena() function
-    - Update limit as desired in the url in the download_all_permits() function (currently set at 5000 rows for testing purposes) 
+    - Update limit as desired in the url in the download_all_permits() function (currently set at 5000 rows for testing purposes)
 """
 
 import requests
@@ -38,14 +38,14 @@ def pull_existing_pins_from_athena():
     )
 
     SQL_QUERY = "SELECT  pin, pin10 FROM default.vw_pin_universe WHERE triad_name='City' AND year='2023';"
-    
+
     cursor = conn.cursor()
     cursor.execute(SQL_QUERY)
     chicago_pin_universe = as_pandas(cursor)
     chicago_pin_universe.to_csv("chicago_pin_universe.csv", index=False)
 
-    return chicago_pin_universe 
-    
+    return chicago_pin_universe
+
 
 def download_all_permits():
     # update limit in url below when ready to work with full dataset (as of Dec 7, 2023 dataset has 757,677 rows)
@@ -58,22 +58,22 @@ def download_all_permits():
 
 
 def expand_multi_pin_permits(df):
-    """ 
+    """
     Data from the Chicago open data permits table (data this script works with) has rows uniquely identified by permit number.
     Permits can apply to multiple PINs, with additional PINs recorded in the PIN2 - PIN10 fields.
-    We want rows that are uniquely identified by PIN and permit number. 
+    We want rows that are uniquely identified by PIN and permit number.
     This function creates new rows for each additional PIN in multi-PIN permits and saves the relevant PIN in pin_solo.
-    """    
+    """
     # the downloaded dataframe will not include any pin columns that are completely blank, so check for existing ones here
     all_pin_columns = ["pin1", "pin2", "pin3", "pin4", "pin5", "pin6", "pin7", "pin8", "pin9", "pin10"]
     pin_columns = [col for col in df.columns if col in all_pin_columns]
     non_pin_columns = [col for col in df.columns if col not in pin_columns]
 
     melted_df = pd.melt(df, id_vars=non_pin_columns, value_vars=pin_columns, var_name="pin_type", value_name="solo_pin")
-    
+
     # keep rows with NA for pin1, filter out rows with NA for other pins
     melted_df = melted_df[(melted_df["pin_type"] == "pin1") | ((melted_df["pin_type"] != "pin1") & melted_df["solo_pin"].notna())]
-    
+
     # order rows by permit number then pin type (so pins will be in order of their assigned numbering in permit table, not necessarily by pin number)
     melted_df = melted_df.sort_values(by=["permit_", "pin_type"]).reset_index(drop=True)
 
@@ -81,7 +81,7 @@ def expand_multi_pin_permits(df):
 
 
 # update pin to match formatting of iasWorld
-def format_pin(df): 
+def format_pin(df):
     # iasWorld format doesn't include dashes
     df["pin_final"] = df["solo_pin"].astype(str).str.replace("-", "")
     # add zeros to 10-digit PINs to transform into 14-digits PINs
@@ -109,28 +109,28 @@ def organize_columns(df):
         "contact_1_name": "Applicant* [USER21]",
         "work_description": "Notes [NOTE1]"
         }
-    
+
     data_relevant = df[[col for col in df.columns if col in column_renaming_dict]]
     data_renamed = data_relevant.rename(columns=column_renaming_dict)
- 
+
     column_order = ["Original PIN", # will keep original PIN column for rows flagged for invalid PINs
-                    "PIN* [PARID]",	
-                    "Local Permit No.* [USER28]",	
-                    "Issue Date* [PERMDT]",	
+                    "PIN* [PARID]",
+                    "Local Permit No.* [USER28]",
+                    "Issue Date* [PERMDT]",
                     "Desc 1* [DESC1]",
-                	"Desc 2 Code 1 [USER6]",	
-                    "Desc 2 Code 2 [USER7]",	
+                	"Desc 2 Code 1 [USER6]",
+                    "Desc 2 Code 2 [USER7]",
                     "Desc 2 Code 3 [USER8]",
-                    "Amount* [AMOUNT]",	
-                    "Assessable [IS_ASSESS]",	
-                    "Applicant Street Address* [ADDR1]",	
-                    "Applicant Address 2 [ADDR2]",	
-                    "Applicant City, State, Zip* [ADDR3]",	
-                    "Contact Phone* [PHONE]",	
-                    "Applicant* [USER21]",	
-                    "Notes [NOTE1]",	
-                    "Occupy Dt [UDATE1]",	
-                    "Submit Dt* [CERTDATE]",	
+                    "Amount* [AMOUNT]",
+                    "Assessable [IS_ASSESS]",
+                    "Applicant Street Address* [ADDR1]",
+                    "Applicant Address 2 [ADDR2]",
+                    "Applicant City, State, Zip* [ADDR3]",
+                    "Contact Phone* [PHONE]",
+                    "Applicant* [USER21]",
+                    "Notes [NOTE1]",
+                    "Occupy Dt [UDATE1]",
+                    "Submit Dt* [CERTDATE]",
                     "Est Comp Dt [UDATE2]"
                     ]
 
@@ -147,12 +147,12 @@ def flag_invalid_pins(df, valid_pins):
     # invalid 14-digit PIN flag
     valid_pins["pin"] = valid_pins["pin"].astype(str)
     df["FLAG, INVALID: PIN* [PARID]"] = np.where(df["PIN* [PARID]"] == "", 0, ~df["PIN* [PARID]"].isin(valid_pins["pin"]))
-    
+
     # also check if 10-digit PINs are valid to narrow down on problematic portion of invalid PINs
-    df["pin_10digit"] = df["PIN* [PARID]"].astype(str).str[:10] 
+    df["pin_10digit"] = df["PIN* [PARID]"].astype(str).str[:10]
     df["FLAG, INVALID: pin_10digit"] = np.where(df["pin_10digit"] == "", 0, df["pin_10digit"].isin(valid_pins["pin10"]))
-    
-    # create variable that is the numbers following the 10-digit PIN 
+
+    # create variable that is the numbers following the 10-digit PIN
     # (not pulling last 4 digits from the end in case there are PINs that are not 14-digits in Chicago permit data)
     df["pin_suffix"] = df["PIN* [PARID]"].astype(str).str[10:]
 
@@ -165,11 +165,11 @@ def flag_invalid_pins(df, valid_pins):
 
 
 def flag_fix_long_fields(df):
-    # will use these abbreviations to shorten applicant name field (Applicant* [USER21]) within 50 character field limit 
+    # will use these abbreviations to shorten applicant name field (Applicant* [USER21]) within 50 character field limit
     name_shortening_dict = {
-        "ASSOCIATION":   "ASSN",   
+        "ASSOCIATION":   "ASSN",
         "COMPANY":      "CO",
-        "BUILDING":     "BLDG",     
+        "BUILDING":     "BLDG",
         "FOUNDATION":   "FNDN",
         "ILLINOIS":     "IL",
         "STREET":       "ST",
@@ -183,9 +183,9 @@ def flag_fix_long_fields(df):
         "LIMITED":      "LTD",
         "PLAZA":        "PLZ"
 }
-  
+
     df["Applicant* [USER21]"] = df["Applicant* [USER21]"].replace(name_shortening_dict, regex=True)
-    
+
     # these fields have the following character limits in Smartfile / iasWorld, flag if over limit
     long_fields_to_flag = [
         ("FLAG, LENGTH: Applicant Name", "Applicant* [USER21]", 50, "Applicant* [USER21] over 50 char limit by "),
@@ -193,16 +193,16 @@ def flag_fix_long_fields(df):
         ("FLAG, LENGTH: Applicant Street Address", "Applicant Street Address* [ADDR1]", 40, "Applicant Street Address* [ADDR1] over 40 char limit by "),
         ("FLAG, LENGTH: Note1", "Notes [NOTE1]", 2000, "Notes [NOTE1] over 2000 char limit by ")
     ]
-    
+
     for flag_name, column, limit, comment in long_fields_to_flag:
         df[flag_name] = df[column].apply(lambda val: 0 if pd.isna(val) else (1 if len(str(val)) > limit else 0))
         df["FLAG COMMENTS"] += df[column].apply(lambda val: "" if pd.isna(val) else ("" if len(str(val)) < limit else comment + str(len(str(val)) - limit) + "; "))
-     
+
     # round Amount to closest dollar because smart file doesn't accept decimal amounts, then flag values above upper limit
     df["Amount* [AMOUNT]"] = pd.to_numeric(df["Amount* [AMOUNT]"], errors="coerce").round().astype("Int64")
     df["FLAG, VALUE: Amount"] = df["Amount* [AMOUNT]"].apply(lambda value: 0 if pd.isna(value) or value <= 2147483647 else 1)
     df["FLAG COMMENTS"] += df["Amount* [AMOUNT]"].apply(lambda value: "" if pd.isna(value) or value <= 2147483647 else "Amount* [AMOUNT] over value limit of 2147483647; ")
-    
+
     # also flag rows where fields are blank for manual review (for fields we're populating in smartfile template)
     empty_fields_to_flag = [
         ("FLAG, EMPTY: PIN", "PIN* [PARID]"),
@@ -223,10 +223,10 @@ def flag_fix_long_fields(df):
     df["FLAGS, TOTAL - LENGTH/VALUE"] = df.filter(like="FLAG, LENGTH").values.sum(axis=1) + df.filter(like="FLAG, VALUE").values.sum(axis=1)
     df["FLAGS, TOTAL - EMPTY/INVALID"] = df.filter(like="FLAG, EMPTY").values.sum(axis=1) + df.filter(like="FLAG, INVALID").values.sum(axis=1)
 
-    # need a column that identifies rows with flags for field length/amount but no flags for emptiness/invalidness 
+    # need a column that identifies rows with flags for field length/amount but no flags for emptiness/invalidness
     # since these two categories will get split into separate excel workbooks
     df["MANUAL REVIEW"] = np.where((df["FLAGS, TOTAL - EMPTY/INVALID"] == 0) & (df["FLAGS, TOTAL - LENGTH/VALUE"] > 0), 1, 0)
-    
+
     # for ease of analysts viewing, edits flag columns to read "Yes" when row is flagged and blank otherwise (easier than columns of 0s and 1s)
     flag_columns = list(df.filter(like="FLAG, LENGTH").columns) + list(df.filter(like="FLAG, VALUE").columns) + list(df.filter(like="FLAG, EMPTY").columns) + list(df.filter(like="FLAG, INVALID").columns)
     df[flag_columns] = df[flag_columns].replace({0: "", 1: "Yes"})
@@ -247,14 +247,14 @@ def save_xlsx_files(df, max_rows, file_base_name):
     df_ready = df[(df["FLAGS, TOTAL - LENGTH/VALUE"] == 0) & (df["FLAGS, TOTAL - EMPTY/INVALID"] == 0)].reset_index()
     df_ready = df_ready.drop(columns=df_ready.filter(like="FLAG").columns).\
         drop(columns=["index", "Original PIN", "MANUAL REVIEW", "pin_10digit", "pin_suffix"])
-    
+
     df_review_length = df[df["MANUAL REVIEW"] == 1].reset_index()
     df_review_length = df_review_length.drop(columns=df_review_length.filter(like="FLAG, EMPTY")).\
         drop(columns=df_review_length.filter(like="FLAG, INVALID")).\
         drop(columns=["Original PIN", "FLAGS, TOTAL - EMPTY/INVALID", "index", "MANUAL REVIEW", "pin_10digit", "pin_suffix"])
-    
+
     df_review_empty_invalid = df[df["FLAGS, TOTAL - EMPTY/INVALID"] > 0].reset_index().\
-        drop(columns=["index", "MANUAL REVIEW", "pin_10digit", "pin_suffix"]) 
+        drop(columns=["index", "MANUAL REVIEW", "pin_10digit", "pin_suffix"])
 
     print("# rows ready for upload: ", len(df_ready))
     print("# rows flagged for length: ", len(df_review_length))
