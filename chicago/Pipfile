@@ -8,6 +8,7 @@ requests = "2.31.*"
 pandas = "2.1.*"
 sodapy = "2.2.*"
 PyAthena = "3.0.*"
+XlsxWriter = "3.1.*"
 
 [dev-packages]
 
