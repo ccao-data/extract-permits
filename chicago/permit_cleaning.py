@@ -37,7 +37,13 @@ def pull_existing_pins_from_athena():
         region_name=os.getenv("AWS_REGION"),
     )
 
-    SQL_QUERY = "SELECT  pin, pin10 FROM default.vw_pin_universe WHERE triad_name='City' AND year='2023';"
+    SQL_QUERY = """
+        SELECT
+            CAST(pin AS varchar) AS pin,
+            CAST(pin10 AS varchar) AS pin10
+        FROM default.vw_pin_universe
+        WHERE triad_name = 'City' AND year = '2023'
+    """
 
     cursor = conn.cursor()
     cursor.execute(SQL_QUERY)
@@ -145,12 +151,11 @@ def flag_invalid_pins(df, valid_pins):
     df["FLAG COMMENTS"] = ""
 
     # invalid 14-digit PIN flag
-    valid_pins["pin"] = valid_pins["pin"].astype(str)
     df["FLAG, INVALID: PIN* [PARID]"] = np.where(df["PIN* [PARID]"] == "", 0, ~df["PIN* [PARID]"].isin(valid_pins["pin"]))
 
     # also check if 10-digit PINs are valid to narrow down on problematic portion of invalid PINs
     df["pin_10digit"] = df["PIN* [PARID]"].astype(str).str[:10]
-    df["FLAG, INVALID: pin_10digit"] = np.where(df["pin_10digit"] == "", 0, df["pin_10digit"].isin(valid_pins["pin10"]))
+    df["FLAG, INVALID: pin_10digit"] = np.where(df["pin_10digit"] == "", 0, ~df["pin_10digit"].isin(valid_pins["pin10"]))
 
     # create variable that is the numbers following the 10-digit PIN
     # (not pulling last 4 digits from the end in case there are PINs that are not 14-digits in Chicago permit data)
