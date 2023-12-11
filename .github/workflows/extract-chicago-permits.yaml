@@ -80,7 +80,7 @@ jobs:
         run: |
           ZIP_FILENAME="chicago-permits-$(date +%Y%m%d%H%M%S).zip"
           mkdir chicago-permits
-          mv csvs_for_* chicago-permits/
+          mv files_for_* chicago-permits/
           zip -r "$ZIP_FILENAME" chicago-permits
           echo "filename=$ZIP_FILENAME" >> "$GITHUB_OUTPUT"
         shell: bash
