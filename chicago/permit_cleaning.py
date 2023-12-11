@@ -27,11 +27,6 @@ from pyathena.pandas.util import as_pandas
 from datetime import datetime
 
 
-df = pd.DataFrame()
-df.to_excel("test.xlsx", index=False, engine="xlsxwriter")
-raise ValueError("done!")
-
-
 # DEFINE FUNCTIONS
 
 # Connect to Athena and download existing 14-digit PINs in Chicago
