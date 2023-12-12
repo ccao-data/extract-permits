@@ -61,27 +61,30 @@ jobs:
         shell: bash
         working-directory: ${{ env.WORKING_DIR }}
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_IAM_ROLE_TO_ASSUME_ARN }}
+          aws-region: us-east-1
+
       - name: Extract permits
         run: pipenv run python3 permit_cleaning.py
         shell: bash
         working-directory: ${{ env.WORKING_DIR }}
+        env:
+          AWS_REGION: us-east-1
+          AWS_ATHENA_S3_STAGING_DIR: s3://ccao-athena-results-us-east-1/
 
       - name: Compress permit directories into one file
         id: compress-permits
         run: |
           ZIP_FILENAME="chicago-permits-$(date +%Y%m%d%H%M%S).zip"
           mkdir chicago-permits
-          mv csvs_for_* chicago-permits/
+          mv files_for_* chicago-permits/
           zip -r "$ZIP_FILENAME" chicago-permits
           echo "filename=$ZIP_FILENAME" >> "$GITHUB_OUTPUT"
         shell: bash
         working-directory: ${{ env.WORKING_DIR }}
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_IAM_ROLE_TO_ASSUME_ARN }}
-          aws-region: us-east-1
 
       - name: Upload compressed permit file to S3
         id: s3-upload
