@@ -35,13 +35,8 @@ import requests
 # DEFINE FUNCTIONS
 
 # Connect to Athena and download existing 14-digit PINs in Chicago
-def pull_existing_pins_from_athena():
+def pull_existing_pins_from_athena(cursor):
     print("Pulling PINs from Athena")
-    conn = connect(
-        s3_staging_dir=os.getenv("AWS_ATHENA_S3_STAGING_DIR"),
-        region_name=os.getenv("AWS_REGION"),
-    )
-
     SQL_QUERY = """
         SELECT
             CAST(pin AS varchar) AS pin,
@@ -49,8 +44,6 @@ def pull_existing_pins_from_athena():
         FROM default.vw_pin_universe
         WHERE triad_name = 'City' AND year = '2023'
     """
-
-    cursor = conn.cursor()
     cursor.execute(SQL_QUERY)
     chicago_pin_universe = as_pandas(cursor)
     chicago_pin_universe.to_csv("chicago_pin_universe.csv", index=False)
@@ -248,6 +241,22 @@ def flag_fix_long_fields(df):
     return df
 
 
+def deduplicate_permits(cursor, df):
+    cursor.execute("""
+        SELECT
+            parid,
+            permdt,
+            amount,
+            note2,
+            user21,
+            user28,
+            user43
+        FROM iasworld.permit
+    """)
+    existing_permits = as_pandas(cursor)
+    # TODO: Antijoin df to existing_permits
+    return df
+
 
 def gen_file_base_name():
     today = datetime.today().date()
@@ -309,14 +318,22 @@ def save_xlsx_files(df, max_rows, file_base_name):
     file_name_review_empty_invalid = os.path.join(folder_for_files_review_empty_invalid, file_base_name + "review_empty_invalid.xlsx")
     df_review_empty_invalid.to_excel(file_name_review_empty_invalid, index=False, engine="xlsxwriter")
 
+
 if __name__ == "__main__":
+    conn = connect(
+        s3_staging_dir=os.getenv("AWS_ATHENA_S3_STAGING_DIR"),
+        region_name=os.getenv("AWS_REGION"),
+    )
+    cursor = conn.cursor()
+
     if os.path.exists("chicago_pin_universe.csv"):
         print("Loading Chicago PIN universe data from csv.")
         chicago_pin_universe = pd.read_csv("chicago_pin_universe.csv")
     else:
-        chicago_pin_universe = pull_existing_pins_from_athena()
+        chicago_pin_universe = pull_existing_pins_from_athena(cursor)
 
-    start_date, end_date = sys.argv[1], sys.argv[2]
+    start_date, end_date, deduplicate = sys.argv[1], sys.argv[2], sys.argv[3]
+    deduplicate = deduplicate.lower() == "true"
 
     permits = download_permits(start_date, end_date)
     print(
@@ -335,6 +352,19 @@ if __name__ == "__main__":
 
     permits_shortened = flag_fix_long_fields(permits_validated)
 
+    if deduplicate:
+        print(
+            "Number of permits prior to deduplication: "
+            f"{len(permits_shortened)}"
+        )
+        permits_deduped = deduplicate_permits(cursor, permits_shortened)
+        print(
+            "Number of permits after deduplication: "
+            f"{len(permits_deduped)}"
+        )
+    else:
+        permits_deduped = permits_shortened
+
     file_base_name = gen_file_base_name()
 
-    save_xlsx_files(permits_shortened, 200, file_base_name)
+    save_xlsx_files(permits_deduped, 200, file_base_name)
