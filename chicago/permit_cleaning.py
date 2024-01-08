@@ -12,19 +12,24 @@ The following environment variables need to be set before running this script:
     AWS_ATHENA_S3_STAGING_DIR=s3://ccao-athena-results-us-east-1
     AWS_REGION=us-east-1
 
+The script also expects two positional arguments:
+    * start_date: The lower bound date to use for filtering permits
+    * end_date: The upper bound date to use for filtering
+
 The following will also need to be updated:
     - At the beginning of each year: update year to current year in SQL_QUERY inside pull_existing_pins_from_athena() function
-    - Update limit as desired in the url in the download_all_permits() function (currently set at 5000 rows for testing purposes)
 """
 
-import requests
-import pandas as pd
-import os
-import numpy as np
+from datetime import datetime
 import math
+import os
+import sys
+
+import numpy as np
+import pandas as pd
 from pyathena import connect
 from pyathena.pandas.util import as_pandas
-from datetime import datetime
+import requests
 
 
 # DEFINE FUNCTIONS
@@ -53,10 +58,14 @@ def pull_existing_pins_from_athena():
     return chicago_pin_universe
 
 
-def download_all_permits():
-    # update limit in url below when ready to work with full dataset (as of Dec 7, 2023 dataset has 757,677 rows)
-    url = "https://data.cityofchicago.org/resource/ydr8-5enu.json?$limit=5000&$order=issue_date DESC"
-    permits_response = requests.get(url)
+def download_permits(start_date, end_date):
+    params = {
+        "$where": f"issue_date between '{start_date}' and '{end_date}'",
+        "$order": "issue_date DESC",
+        "$limit": 1000000  # Artificial limit to override the default
+    }
+    url = "https://data.cityofchicago.org/resource/ydr8-5enu.json"
+    permits_response = requests.get(url, params=params)
     permits_response.raise_for_status()
     permits = permits_response.json()
     permits_df = pd.DataFrame(permits)
@@ -300,29 +309,32 @@ def save_xlsx_files(df, max_rows, file_base_name):
     file_name_review_empty_invalid = os.path.join(folder_for_files_review_empty_invalid, file_base_name + "review_empty_invalid.xlsx")
     df_review_empty_invalid.to_excel(file_name_review_empty_invalid, index=False, engine="xlsxwriter")
 
+if __name__ == "__main__":
+    if os.path.exists("chicago_pin_universe.csv"):
+        print("Loading Chicago PIN universe data from csv.")
+        chicago_pin_universe = pd.read_csv("chicago_pin_universe.csv")
+    else:
+        chicago_pin_universe = pull_existing_pins_from_athena()
 
+    start_date, end_date = sys.argv[1], sys.argv[2]
 
+    permits = download_permits(start_date, end_date)
+    print(
+        f"Downloaded {len(permits)} "
+        f"permit{'' if len(permits) == 1 else 's'} "
+        f"between {start_date} and {end_date}"
+    )
 
+    permits_expanded = expand_multi_pin_permits(permits)
 
-# CALL FUNCTIONS
-if os.path.exists("chicago_pin_universe.csv"):
-    print("Loading Chicago PIN universe data from csv.")
-    chicago_pin_universe = pd.read_csv("chicago_pin_universe.csv")
-else:
-    chicago_pin_universe = pull_existing_pins_from_athena()
+    permits_pin = format_pin(permits_expanded)
 
-permits = download_all_permits()
+    permits_renamed = organize_columns(permits_expanded)
 
-permits_expanded = expand_multi_pin_permits(permits)
+    permits_validated = flag_invalid_pins(permits_renamed, chicago_pin_universe)
 
-permits_pin = format_pin(permits_expanded)
+    permits_shortened = flag_fix_long_fields(permits_validated)
 
-permits_renamed = organize_columns(permits_expanded)
+    file_base_name = gen_file_base_name()
 
-permits_validated = flag_invalid_pins(permits_renamed, chicago_pin_universe)
-
-permits_shortened = flag_fix_long_fields(permits_validated)
-
-file_base_name = gen_file_base_name()
-
-save_xlsx_files(permits_shortened, 200, file_base_name)
+    save_xlsx_files(permits_shortened, 200, file_base_name)
