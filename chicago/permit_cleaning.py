@@ -12,9 +12,10 @@ The following optional environment variables can be set:
     AWS_ATHENA_S3_STAGING_DIR: S3 path where Athena query results are stored
     AWS_REGION: Region that AWS operations should be run in
 
-The script also expects two positional arguments:
-    * start_date: The lower bound date to use for filtering permits
-    * end_date: The upper bound date to use for filtering
+The script also expects three positional arguments:
+    * start_date (str, YYYY-MM-DD): The lower bound date to use for filtering permits
+    * end_date (str, YYYY-MM-DD): The upper bound date to use for filtering
+    * deduplicate (bool): Whether to filter out permits that already exist in iasworld
 
 The following will also need to be updated:
     - At the beginning of each year: update year to current year in SQL_QUERY inside pull_existing_pins_from_athena() function
