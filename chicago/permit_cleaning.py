@@ -93,9 +93,17 @@ def expand_multi_pin_permits(df):
 # update pin to match formatting of iasWorld
 def format_pin(df):
     # iasWorld format doesn't include dashes
-    df["pin_final"] = df["solo_pin"].astype(str).str.replace("-", "")
+    df["pin_final"] = df["solo_pin"].astype("string").str.replace("-", "")
     # add zeros to 10-digit PINs to transform into 14-digits PINs
-    df["pin_final"] = df["pin_final"].apply(lambda x: x + "0000" if len(x) == 10 else x if x != "nan" else "")
+    def pad_pin(pin):
+        if not pd.isna(pin):
+            if len(pin) == 10:
+                return pin + "0000"
+            else:
+                return pin
+        else:
+            return ""
+    df["pin_final"] = df["pin_final"].apply(pad_pin)
     df["NOTE: 0000 added to PIN?"] = df["pin_final"].apply(lambda x: "Yes" if len(x) == 10 else "No")
     return df
 
@@ -105,7 +113,7 @@ def organize_columns(df):
 
     address_columns = ["street_number", "street_direction", "street_name", "suffix"]
     df[address_columns] = df[address_columns].fillna("")
-    df["Address"] = df[address_columns].astype(str).agg(" ".join, axis=1)
+    df["Address"] = df[address_columns].astype("string").agg(" ".join, axis=1)
 
     df["issue_date"] = pd.to_datetime(df["issue_date"], format="%Y-%m-%dT%H:%M:%S.%f", errors='coerce').dt.strftime("%-m/%-d/%Y")
 
@@ -158,12 +166,12 @@ def flag_invalid_pins(df, valid_pins):
     df["FLAG, INVALID: PIN* [PARID]"] = np.where(df["PIN* [PARID]"] == "", 0, ~df["PIN* [PARID]"].isin(valid_pins["pin"]))
 
     # also check if 10-digit PINs are valid to narrow down on problematic portion of invalid PINs
-    df["pin_10digit"] = df["PIN* [PARID]"].astype(str).str[:10]
+    df["pin_10digit"] = df["PIN* [PARID]"].astype("string").str[:10]
     df["FLAG, INVALID: pin_10digit"] = np.where(df["pin_10digit"] == "", 0, ~df["pin_10digit"].isin(valid_pins["pin10"]))
 
     # create variable that is the numbers following the 10-digit PIN
     # (not pulling last 4 digits from the end in case there are PINs that are not 14-digits in Chicago permit data)
-    df["pin_suffix"] = df["PIN* [PARID]"].astype(str).str[10:]
+    df["pin_suffix"] = df["PIN* [PARID]"].astype("string").str[10:]
 
     # comment for rows with invalid pin
     df["FLAG COMMENTS"] += df["FLAG, INVALID: PIN* [PARID]"].apply(lambda val: "" if val == 0 else "PIN* [PARID] is invalid, see Original PIN for raw form; ")
@@ -247,7 +255,6 @@ def deduplicate_permits(cursor, df, start_date, end_date):
     cursor.execute(
         """
             SELECT
-                iasw_id,
                 parid,
                 permdt,
                 amount,
@@ -382,7 +389,10 @@ if __name__ == "__main__":
 
     if os.path.exists("chicago_pin_universe.csv"):
         print("Loading Chicago PIN universe data from csv.")
-        chicago_pin_universe = pd.read_csv("chicago_pin_universe.csv")
+        chicago_pin_universe = pd.read_csv(
+            "chicago_pin_universe.csv",
+            dtype={"pin": "string", "pin10": "string"}
+        )
     else:
         chicago_pin_universe = pull_existing_pins_from_athena(cursor)
 
