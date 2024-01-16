@@ -68,7 +68,11 @@ jobs:
           aws-region: us-east-1
 
       - name: Extract permits
-        run: pipenv run python3 permit_cleaning.py
+        run: |
+          pipenv run python3 permit_cleaning.py \
+            '${{ inputs.start_date }}' \
+            '${{ inputs.end_date }}' \
+            '${{ inputs.deduplicate }}'
         shell: bash
         working-directory: ${{ env.WORKING_DIR }}
         env:
