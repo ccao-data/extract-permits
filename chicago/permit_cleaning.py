@@ -124,6 +124,7 @@ def organize_columns(df):
         "issue_date": "Issue Date* [PERMDT]",
         "reported_cost": "Amount* [AMOUNT]",
         "Address": "Applicant Street Address* [ADDR1]",
+        "city_state": "Applicant City, State, Zip* [ADDR3]",
         "contact_1_name": "Applicant* [USER21]",
         "work_description": "Notes [NOTE1]"
         }
@@ -405,6 +406,10 @@ if __name__ == "__main__":
         f"permit{'' if len(permits) == 1 else 's'} "
         f"between {start_date} and {end_date}"
     )
+
+    # Chicago permit data does not include city and state, but smartfile
+    # expects it, so add it manually
+    permits["city_state"] = "CHICAGO, IL"
 
     permits_expanded = expand_multi_pin_permits(permits)
 
