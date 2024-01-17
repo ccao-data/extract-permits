@@ -84,6 +84,13 @@ def expand_multi_pin_permits(df):
     # keep rows with NA for pin1, filter out rows with NA for other pins
     melted_df = melted_df[(melted_df["pin_type"] == "pin1") | ((melted_df["pin_type"] != "pin1") & melted_df["solo_pin"].notna())]
 
+    # Sometimes the incoming permits have duplicate PINs across PIN
+    # columns, e.g. pin3 == pin4 and both are not null. Make sure to catch
+    # this edge case and remove the duplicate PINs from the set, giving
+    # priority to PINs with lower pin_types (e.g. if pin2 and pin3 share the
+    # same PIN, pin2 should take priority)
+    melted_df = melted_df.sort_values(by=["permit_", "solo_pin", "pin_type"]).drop_duplicates(subset=["permit_", "solo_pin"], keep="first")
+
     # order rows by permit number then pin type (so pins will be in order of their assigned numbering in permit table, not necessarily by pin number)
     melted_df = melted_df.sort_values(by=["permit_", "pin_type"]).reset_index(drop=True)
 
