@@ -142,7 +142,7 @@ def format_pin(df):
 # Eliminate columns not included in permit upload and rename and order to match Smartfile excel format
 def organize_columns(df):
 
-    address_columns = ["street_number", "street_direction", "street_name", "suffix"]
+    address_columns = ["street_number", "street_direction", "street_name"]
     df[address_columns] = df[address_columns].fillna("")
     df["Address"] = df[address_columns].astype("string").agg(" ".join, axis=1)
 
