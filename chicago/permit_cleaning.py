@@ -245,7 +245,7 @@ def flag_fix_long_fields(df):
 
     for flag_name, column, limit, comment in long_fields_to_flag:
         df[flag_name] = df[column].apply(lambda val: 0 if pd.isna(val) else (1 if len(str(val)) > limit else 0))
-        df["FLAG COMMENTS"] += df[column].apply(lambda val: "" if pd.isna(val) else ("" if len(str(val)) < limit else comment + str(len(str(val)) - limit) + "; "))
+        df["FLAG COMMENTS"] += df[column].apply(lambda val: "" if pd.isna(val) else ("" if len(str(val)) <= limit else comment + str(len(str(val)) - limit) + "; "))
 
     # round Amount to closest dollar because smart file doesn't accept decimal amounts, then flag values above upper limit
     df["Amount* [AMOUNT]"] = pd.to_numeric(df["Amount* [AMOUNT]"], errors="coerce").round().astype("Int64")
