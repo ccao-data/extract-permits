@@ -70,31 +70,55 @@ def download_permits(start_date, end_date):
 def expand_multi_pin_permits(df):
     """
     Data from the Chicago open data permits table (data this script works with) has rows uniquely identified by permit number.
-    Permits can apply to multiple PINs, with additional PINs recorded in the PIN2 - PIN10 fields.
+    Permits can apply to multiple PINs, in which case the PIN_LIST column will
+    be a pipe-separated value representing multiple PINs.
     We want rows that are uniquely identified by PIN and permit number.
-    This function creates new rows for each additional PIN in multi-PIN permits and saves the relevant PIN in pin_solo.
+    This function creates new rows for each PIN in multi-PIN permits and saves the relevant PIN in pin_solo.
     """
-    # the downloaded dataframe will not include any pin columns that are completely blank, so check for existing ones here
-    all_pin_columns = ["pin1", "pin2", "pin3", "pin4", "pin5", "pin6", "pin7", "pin8", "pin9", "pin10"]
-    pin_columns = [col for col in df.columns if col in all_pin_columns]
-    non_pin_columns = [col for col in df.columns if col not in pin_columns]
+    def parse_pin_list(pin_list_str):
+        """Parse the PIN_LIST column. The column is formatted like so:
 
-    melted_df = pd.melt(df, id_vars=non_pin_columns, value_vars=pin_columns, var_name="pin_type", value_name="solo_pin")
+          * If no PINs are in the list, the value is NA, and we want to keep it
+          * Otherwise, PINs are stored as pipe-separated values, and we want to
+            parse them as lists so that we can pivot them out to one
+            permit per PIN
+        """
+        if pd.isna(pin_list_str):
+            return np.nan
+        elif " | " in pin_list_str:
+            pin_list = pin_list_str.split(" | ")
+            # Remove duplicates while maintaining list order
+            return list(dict.fromkeys(pin_list))
+        else:
+            return [pin_list_str]
 
-    # keep rows with NA for pin1, filter out rows with NA for other pins
-    melted_df = melted_df[(melted_df["pin_type"] == "pin1") | ((melted_df["pin_type"] != "pin1") & melted_df["solo_pin"].notna())]
+    df['pin_list'] = df['pin_list'].apply(parse_pin_list)
 
-    # Sometimes the incoming permits have duplicate PINs across PIN
-    # columns, e.g. pin3 == pin4 and both are not null. Make sure to catch
-    # this edge case and remove the duplicate PINs from the set, giving
-    # priority to PINs with lower pin_types (e.g. if pin2 and pin3 share the
-    # same PIN, pin2 should take priority)
-    melted_df = melted_df.sort_values(by=["permit_", "solo_pin", "pin_type"]).drop_duplicates(subset=["permit_", "solo_pin"], keep="first")
+    # Retain rows where pin_list is NA, since the pivot operation will
+    # remove them but we want to keep them
+    na_rows = df[df["pin_list"].isna()]
+    df = df.dropna(subset=["pin_list"])
 
-    # order rows by permit number then pin type (so pins will be in order of their assigned numbering in permit table, not necessarily by pin number)
-    melted_df = melted_df.sort_values(by=["permit_", "pin_type"]).reset_index(drop=True)
+    # Pivot the dataframe longer by "pin_list" so that we have one row
+    # per PIN with "solo_pin" being the PIN column
+    df = df.explode("pin_list").reset_index(drop=True).rename(columns={
+        "pin_list": "solo_pin"
+    })
 
-    return melted_df
+    # Add a column to track the position of the PIN in the PIN list for
+    # ordering, starting at 1
+    df["pin_type"] = df.groupby("permit_").cumcount() + 1
+    df["pin_type"] = "pin" + df["pin_type"].astype(str)
+
+    # Add back the NA rows
+    df = pd.concat([df, na_rows], ignore_index=True)
+
+    # Sort by the permit number, then the position of the PIN in the list,
+    # so that PINs will be in order of their permit number and list position
+    # in the output table
+    df = df.sort_values(by=["permit_", "pin_type"]).reset_index(drop=True)
+
+    return df
 
 
 # update pin to match formatting of iasWorld
@@ -118,7 +142,7 @@ def format_pin(df):
 # Eliminate columns not included in permit upload and rename and order to match Smartfile excel format
 def organize_columns(df):
 
-    address_columns = ["street_number", "street_direction", "street_name", "suffix"]
+    address_columns = ["street_number", "street_direction", "street_name"]
     df[address_columns] = df[address_columns].fillna("")
     df["Address"] = df[address_columns].astype("string").agg(" ".join, axis=1)
 
@@ -221,7 +245,7 @@ def flag_fix_long_fields(df):
 
     for flag_name, column, limit, comment in long_fields_to_flag:
         df[flag_name] = df[column].apply(lambda val: 0 if pd.isna(val) else (1 if len(str(val)) > limit else 0))
-        df["FLAG COMMENTS"] += df[column].apply(lambda val: "" if pd.isna(val) else ("" if len(str(val)) < limit else comment + str(len(str(val)) - limit) + "; "))
+        df["FLAG COMMENTS"] += df[column].apply(lambda val: "" if pd.isna(val) else ("" if len(str(val)) <= limit else comment + str(len(str(val)) - limit) + "; "))
 
     # round Amount to closest dollar because smart file doesn't accept decimal amounts, then flag values above upper limit
     df["Amount* [AMOUNT]"] = pd.to_numeric(df["Amount* [AMOUNT]"], errors="coerce").round().astype("Int64")
