@@ -71,7 +71,7 @@ def expand_multi_pin_permits(df):
     """
     Data from the Chicago open data permits table (data this script works with) has rows uniquely identified by permit number.
     Permits can apply to multiple PINs, in which case the PIN_LIST column will
-    be an pipe-separated value representing multiple PINs.
+    be a pipe-separated value representing multiple PINs.
     We want rows that are uniquely identified by PIN and permit number.
     This function creates new rows for each PIN in multi-PIN permits and saves the relevant PIN in pin_solo.
     """
@@ -107,7 +107,7 @@ def expand_multi_pin_permits(df):
 
     # Add a column to track the position of the PIN in the PIN list for
     # ordering, starting at 1
-    df["pin_type"] = df.groupby(level=0).cumcount() + 1
+    df["pin_type"] = df.groupby("permit_").cumcount() + 1
     df["pin_type"] = "pin" + df["pin_type"].astype(str)
 
     # Add back the NA rows
