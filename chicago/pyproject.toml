@@ -1,0 +1,19 @@
+[project]
+name = "chicago-permits"
+version = "0.0.1"
+description = "Extract process for Chicago permits"
+requires-python = ">=3.11"
+dependencies = [
+  "requests==2.31.*",
+  "pandas==2.1.*",
+  "PyAthena==3.0.*",
+  "XlsxWriter==3.2.*",
+]
+
+[tool.ruff]
+# Default is 88
+line-length = 79
+
+[tool.ruff.lint]
+# Enable isort
+extend-select = ["I"]
