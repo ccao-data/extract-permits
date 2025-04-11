@@ -638,11 +638,6 @@ if __name__ == "__main__":
     # Parse command line arguments
     start_date, end_date, deduplicate = parse_args()
 
-    print("Running permit_cleaning.py with arguments:")
-    print(f"  - Start date:   {start_date}")
-    print(f"  - End date:     {end_date}")
-    print(f"  - Deduplicate:  {deduplicate}")
-
     # Set up database connection cursor to query Athena
     conn = connect(
         s3_staging_dir=os.getenv(
