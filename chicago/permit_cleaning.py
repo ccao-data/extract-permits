@@ -31,33 +31,103 @@ import numpy as np
 import pandas as pd
 import requests
 from pyathena import connect
+from pyathena.cursor import Cursor
 from pyathena.pandas.util import as_pandas
 
-# DEFINE FUNCTIONS
+
+def parse_args() -> tuple[str, str, bool]:
+    """Helper function to parse and validate command line args to this
+    script"""
+    if len(sys.argv) < 4:
+        print(
+            "Usage: permit_cleaning.py <start_date> <end_date> <deduplicate>"
+        )
+        sys.exit(1)
+
+    start_date_str, end_date_str, deduplicate = (
+        sys.argv[1],
+        sys.argv[2],
+        sys.argv[3],
+    )
+
+    try:
+        start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+    except ValueError:
+        print(
+            f"Invalid start_date format: '{start_date_str}'. Expected YYYY-MM-DD."
+        )
+        sys.exit(1)
+
+    try:
+        end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
+    except ValueError:
+        print(
+            f"Invalid end_date format: '{end_date_str}'. Expected YYYY-MM-DD."
+        )
+        sys.exit(1)
+
+    if end_date < start_date:
+        print("Error: end_date must be later than or equal to start_date.")
+        sys.exit(1)
+
+    deduplicate = deduplicate.lower() == "true"
+
+    return start_date_str, end_date_str, deduplicate
 
 
-# Connect to Athena and download existing 14-digit PINs in Chicago
-def pull_existing_pins_from_athena(cursor):
-    print("Pulling PINs from Athena")
+def year_from_date_string(date_str: str) -> str:
+    """Parse a date string in YYYY-MM-DD format and return a string representing
+    the year of the date"""
+
+    return str(datetime.strptime(date_str, "%Y-%m-%d").year)
+
+
+def get_pin_cache_filename(start_date: str, end_date: str) -> str:
+    """Given start and end dates, return the name of a file that we can use to
+    cache distinct PINs between the years represented by the two dates"""
+
+    # Assume that dates are already validated for YYYY-MM-DD format
+    start_year = year_from_date_string(start_date)
+    end_year = year_from_date_string(end_date)
+
+    return f"chicago_pin_universe-{start_year}-{end_year}.csv"
+
+
+def pull_existing_pins_from_athena(
+    cursor: Cursor, start_date: str, end_date: str
+) -> pd.DataFrame:
+    """Connect to Athena and download all PINs in Chicago between the given
+    start and end dates"""
+
+    # Assume that dates are already validated for YYYY-MM-DD format
+    start_year = year_from_date_string(start_date)
+    end_year = year_from_date_string(end_date)
+
     SQL_QUERY = """
-        SELECT
+        SELECT DISTINCT
             CAST(pin AS varchar) AS pin,
             CAST(pin10 AS varchar) AS pin10
         FROM default.vw_pin_universe
-        WHERE triad_name = 'City' AND year = '2023'
+        WHERE triad_name = 'City'
+            AND year BETWEEN %(start_year)s AND %(end_year)s
     """
-    cursor.execute(SQL_QUERY)
+    cursor.execute(SQL_QUERY, {"start_year": start_year, "end_year": end_year})
     chicago_pin_universe = as_pandas(cursor)
-    chicago_pin_universe.to_csv("chicago_pin_universe.csv", index=False)
+    pin_cache_filename = get_pin_cache_filename(start_date, end_date)
+    chicago_pin_universe.to_csv(pin_cache_filename, index=False)
 
     return chicago_pin_universe
 
 
-def download_permits(start_date, end_date):
+def download_permits(start_date: str, end_date: str) -> pd.DataFrame:
+    """Download permits from the Chicago open data portal in the dataframe
+    with issue dates between `start_date` and `end_date`"""
     params = {
+        # Assume we've already validated the start and end date strings for
+        # YYYY-MM-DD format
         "$where": f"issue_date between '{start_date}' and '{end_date}'",
         "$order": "issue_date DESC",
-        "$limit": 1000000,  # Artificial limit to override the default
+        "$limit": 10000000,  # Artificial limit to override the default
     }
     url = "https://data.cityofchicago.org/resource/ydr8-5enu.json"
     permits_response = requests.get(url, params=params)
@@ -396,7 +466,6 @@ def deduplicate_permits(cursor, df, start_date, end_date):
         "Issue Date* [PERMDT]": "permdt",
         "Amount* [AMOUNT]": "amount",
         "Applicant Street Address* [ADDR1]": "note2",
-        "Applicant* [USER21]": "user21",
         "Local Permit No.* [USER28]": "user28",
         "Notes [NOTE1]": "user43",
     }
@@ -407,17 +476,23 @@ def deduplicate_permits(cursor, df, start_date, end_date):
     # Transform new columns to ensure they match the iasworld formatting
     new_permits["amount"] = new_permits["amount"].apply(
         lambda x: decimal.Decimal("{:.2f}".format(x))
+        if not pd.isnull(x)
+        else x
     )
+
     new_permits["permdt"] = new_permits["permdt"].apply(
         lambda x: datetime.strptime(x, "%m/%d/%Y").strftime(
             "%Y-%m-%d %H:%M:%S.%f"
-        )[:-5]
+        )[:-3]
     )
     new_permits["note2"] = new_permits["note2"] + ",,CHICAGO, IL"
     new_permits["user43"] = (
-        new_permits["user43"].str.replace("(", "").replace(")", "")
+        new_permits["user43"]
+        # Replace special characters that Smartfile removes
+        .str.replace(r"""[():;+#*&'"@½]""", "", regex=True)
+        # Truncate description to match Smartfile length limit
+        .str.slice(0, 259)
     )
-    new_permits["user43"] = new_permits["user43"].str.slice(0, 261)
 
     # Antijoin new_permits to existing_permits to find permits that do
     # not exist in iasworld
@@ -560,6 +635,10 @@ def save_xlsx_files(df, max_rows, file_base_name):
 
 
 if __name__ == "__main__":
+    # Parse command line arguments
+    start_date, end_date, deduplicate = parse_args()
+
+    # Set up database connection cursor to query Athena
     conn = connect(
         s3_staging_dir=os.getenv(
             "AWS_ATHENA_S3_STAGING_DIR",
@@ -572,17 +651,18 @@ if __name__ == "__main__":
     )
     cursor = conn.cursor()
 
-    if os.path.exists("chicago_pin_universe.csv"):
-        print("Loading Chicago PIN universe data from csv.")
+    pin_cache_filename = get_pin_cache_filename(start_date, end_date)
+    if os.path.exists(pin_cache_filename):
+        print(f"Loading Chicago PIN universe data from {pin_cache_filename}")
         chicago_pin_universe = pd.read_csv(
-            "chicago_pin_universe.csv",
+            pin_cache_filename,
             dtype={"pin": "string", "pin10": "string"},
         )
     else:
-        chicago_pin_universe = pull_existing_pins_from_athena(cursor)
-
-    start_date, end_date, deduplicate = sys.argv[1], sys.argv[2], sys.argv[3]
-    deduplicate = deduplicate.lower() == "true"
+        print("Pulling PINs from Athena")
+        chicago_pin_universe = pull_existing_pins_from_athena(
+            cursor, start_date, end_date
+        )
 
     permits = download_permits(start_date, end_date)
     print(
