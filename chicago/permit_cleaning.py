@@ -21,43 +21,113 @@ The following will also need to be updated:
     - At the beginning of each year: update year to current year in SQL_QUERY inside pull_existing_pins_from_athena() function
 """
 
-from datetime import datetime
 import decimal
 import math
 import os
 import sys
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
-from pyathena import connect
-from pyathena.pandas.util import as_pandas
 import requests
+from pyathena import connect
+from pyathena.cursor import Cursor
+from pyathena.pandas.util import as_pandas
 
 
-# DEFINE FUNCTIONS
+def parse_args() -> tuple[str, str, bool]:
+    """Helper function to parse and validate command line args to this
+    script"""
+    if len(sys.argv) < 4:
+        print(
+            "Usage: permit_cleaning.py <start_date> <end_date> <deduplicate>"
+        )
+        sys.exit(1)
 
-# Connect to Athena and download existing 14-digit PINs in Chicago
-def pull_existing_pins_from_athena(cursor):
-    print("Pulling PINs from Athena")
+    start_date_str, end_date_str, deduplicate = (
+        sys.argv[1],
+        sys.argv[2],
+        sys.argv[3],
+    )
+
+    try:
+        start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+    except ValueError:
+        print(
+            f"Invalid start_date format: '{start_date_str}'. Expected YYYY-MM-DD."
+        )
+        sys.exit(1)
+
+    try:
+        end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
+    except ValueError:
+        print(
+            f"Invalid end_date format: '{end_date_str}'. Expected YYYY-MM-DD."
+        )
+        sys.exit(1)
+
+    if end_date < start_date:
+        print("Error: end_date must be later than or equal to start_date.")
+        sys.exit(1)
+
+    deduplicate = deduplicate.lower() == "true"
+
+    return start_date_str, end_date_str, deduplicate
+
+
+def year_from_date_string(date_str: str) -> str:
+    """Parse a date string in YYYY-MM-DD format and return a string representing
+    the year of the date"""
+
+    return str(datetime.strptime(date_str, "%Y-%m-%d").year)
+
+
+def get_pin_cache_filename(start_date: str, end_date: str) -> str:
+    """Given start and end dates, return the name of a file that we can use to
+    cache distinct PINs between the years represented by the two dates"""
+
+    # Assume that dates are already validated for YYYY-MM-DD format
+    start_year = year_from_date_string(start_date)
+    end_year = year_from_date_string(end_date)
+
+    return f"chicago_pin_universe-{start_year}-{end_year}.csv"
+
+
+def pull_existing_pins_from_athena(
+    cursor: Cursor, start_date: str, end_date: str
+) -> pd.DataFrame:
+    """Connect to Athena and download all PINs in Chicago between the given
+    start and end dates"""
+
+    # Assume that dates are already validated for YYYY-MM-DD format
+    start_year = year_from_date_string(start_date)
+    end_year = year_from_date_string(end_date)
+
     SQL_QUERY = """
-        SELECT
+        SELECT DISTINCT
             CAST(pin AS varchar) AS pin,
             CAST(pin10 AS varchar) AS pin10
         FROM default.vw_pin_universe
-        WHERE triad_name = 'City' AND year = '2023'
+        WHERE triad_name = 'City'
+            AND year BETWEEN %(start_year)s AND %(end_year)s
     """
-    cursor.execute(SQL_QUERY)
+    cursor.execute(SQL_QUERY, {"start_year": start_year, "end_year": end_year})
     chicago_pin_universe = as_pandas(cursor)
-    chicago_pin_universe.to_csv("chicago_pin_universe.csv", index=False)
+    pin_cache_filename = get_pin_cache_filename(start_date, end_date)
+    chicago_pin_universe.to_csv(pin_cache_filename, index=False)
 
     return chicago_pin_universe
 
 
-def download_permits(start_date, end_date):
+def download_permits(start_date: str, end_date: str) -> pd.DataFrame:
+    """Download permits from the Chicago open data portal in the dataframe
+    with issue dates between `start_date` and `end_date`"""
     params = {
+        # Assume we've already validated the start and end date strings for
+        # YYYY-MM-DD format
         "$where": f"issue_date between '{start_date}' and '{end_date}'",
         "$order": "issue_date DESC",
-        "$limit": 1000000  # Artificial limit to override the default
+        "$limit": 10000000,  # Artificial limit to override the default
     }
     url = "https://data.cityofchicago.org/resource/ydr8-5enu.json"
     permits_response = requests.get(url, params=params)
@@ -75,13 +145,14 @@ def expand_multi_pin_permits(df):
     We want rows that are uniquely identified by PIN and permit number.
     This function creates new rows for each PIN in multi-PIN permits and saves the relevant PIN in pin_solo.
     """
+
     def parse_pin_list(pin_list_str):
         """Parse the PIN_LIST column. The column is formatted like so:
 
-          * If no PINs are in the list, the value is NA, and we want to keep it
-          * Otherwise, PINs are stored as pipe-separated values, and we want to
-            parse them as lists so that we can pivot them out to one
-            permit per PIN
+        * If no PINs are in the list, the value is NA, and we want to keep it
+        * Otherwise, PINs are stored as pipe-separated values, and we want to
+          parse them as lists so that we can pivot them out to one
+          permit per PIN
         """
         if pd.isna(pin_list_str):
             return np.nan
@@ -92,7 +163,7 @@ def expand_multi_pin_permits(df):
         else:
             return [pin_list_str]
 
-    df['pin_list'] = df['pin_list'].apply(parse_pin_list)
+    df["pin_list"] = df["pin_list"].apply(parse_pin_list)
 
     # Retain rows where pin_list is NA, since the pivot operation will
     # remove them but we want to keep them
@@ -101,9 +172,11 @@ def expand_multi_pin_permits(df):
 
     # Pivot the dataframe longer by "pin_list" so that we have one row
     # per PIN with "solo_pin" being the PIN column
-    df = df.explode("pin_list").reset_index(drop=True).rename(columns={
-        "pin_list": "solo_pin"
-    })
+    df = (
+        df.explode("pin_list")
+        .reset_index(drop=True)
+        .rename(columns={"pin_list": "solo_pin"})
+    )
 
     # Add a column to track the position of the PIN in the PIN list for
     # ordering, starting at 1
@@ -125,6 +198,7 @@ def expand_multi_pin_permits(df):
 def format_pin(df):
     # iasWorld format doesn't include dashes
     df["pin_final"] = df["solo_pin"].astype("string").str.replace("-", "")
+
     # add zeros to 10-digit PINs to transform into 14-digits PINs
     def pad_pin(pin):
         if not pd.isna(pin):
@@ -134,19 +208,23 @@ def format_pin(df):
                 return pin
         else:
             return ""
+
     df["pin_final"] = df["pin_final"].apply(pad_pin)
-    df["NOTE: 0000 added to PIN?"] = df["pin_final"].apply(lambda x: "Yes" if len(x) == 10 else "No")
+    df["NOTE: 0000 added to PIN?"] = df["pin_final"].apply(
+        lambda x: "Yes" if len(x) == 10 else "No"
+    )
     return df
 
 
 # Eliminate columns not included in permit upload and rename and order to match Smartfile excel format
 def organize_columns(df):
-
     address_columns = ["street_number", "street_direction", "street_name"]
     df[address_columns] = df[address_columns].fillna("")
     df["Address"] = df[address_columns].astype("string").agg(" ".join, axis=1)
 
-    df["issue_date"] = pd.to_datetime(df["issue_date"], format="%Y-%m-%dT%H:%M:%S.%f", errors='coerce').dt.strftime("%-m/%-d/%Y")
+    df["issue_date"] = pd.to_datetime(
+        df["issue_date"], format="%Y-%m-%dT%H:%M:%S.%f", errors="coerce"
+    ).dt.strftime("%-m/%-d/%Y")
 
     column_renaming_dict = {
         "solo_pin": "Original PIN",
@@ -157,34 +235,39 @@ def organize_columns(df):
         "Address": "Applicant Street Address* [ADDR1]",
         "city_state": "Applicant City, State, Zip* [ADDR3]",
         "contact_1_name": "Applicant* [USER21]",
-        "work_description": "Notes [NOTE1]"
-        }
+        "work_description": "Notes [NOTE1]",
+    }
 
-    data_relevant = df[[col for col in df.columns if col in column_renaming_dict]]
+    data_relevant = df[
+        [col for col in df.columns if col in column_renaming_dict]
+    ]
     data_renamed = data_relevant.rename(columns=column_renaming_dict)
 
-    column_order = ["Original PIN", # will keep original PIN column for rows flagged for invalid PINs
-                    "PIN* [PARID]",
-                    "Local Permit No.* [USER28]",
-                    "Issue Date* [PERMDT]",
-                    "Desc 1* [DESC1]",
-                	"Desc 2 Code 1 [USER6]",
-                    "Desc 2 Code 2 [USER7]",
-                    "Desc 2 Code 3 [USER8]",
-                    "Amount* [AMOUNT]",
-                    "Assessable [IS_ASSESS]",
-                    "Applicant Street Address* [ADDR1]",
-                    "Applicant Address 2 [ADDR2]",
-                    "Applicant City, State, Zip* [ADDR3]",
-                    "Contact Phone* [PHONE]",
-                    "Applicant* [USER21]",
-                    "Notes [NOTE1]",
-                    "Occupy Dt [UDATE1]",
-                    "Submit Dt* [CERTDATE]",
-                    "Est Comp Dt [UDATE2]"
-                    ]
+    column_order = [
+        "Original PIN",  # will keep original PIN column for rows flagged for invalid PINs
+        "PIN* [PARID]",
+        "Local Permit No.* [USER28]",
+        "Issue Date* [PERMDT]",
+        "Desc 1* [DESC1]",
+        "Desc 2 Code 1 [USER6]",
+        "Desc 2 Code 2 [USER7]",
+        "Desc 2 Code 3 [USER8]",
+        "Amount* [AMOUNT]",
+        "Assessable [IS_ASSESS]",
+        "Applicant Street Address* [ADDR1]",
+        "Applicant Address 2 [ADDR2]",
+        "Applicant City, State, Zip* [ADDR3]",
+        "Contact Phone* [PHONE]",
+        "Applicant* [USER21]",
+        "Notes [NOTE1]",
+        "Occupy Dt [UDATE1]",
+        "Submit Dt* [CERTDATE]",
+        "Est Comp Dt [UDATE2]",
+    ]
 
-    data_all_cols = data_renamed.assign(**{col: None for col in column_order if col not in data_renamed})
+    data_all_cols = data_renamed.assign(
+        **{col: None for col in column_order if col not in data_renamed}
+    )
     data_ordered = data_all_cols[column_order]
 
     return data_ordered
@@ -195,62 +278,119 @@ def flag_invalid_pins(df, valid_pins):
     df["FLAG COMMENTS"] = ""
 
     # invalid 14-digit PIN flag
-    df["FLAG, INVALID: PIN* [PARID]"] = np.where(df["PIN* [PARID]"] == "", 0, ~df["PIN* [PARID]"].isin(valid_pins["pin"]))
+    df["FLAG, INVALID: PIN* [PARID]"] = np.where(
+        df["PIN* [PARID]"] == "",
+        0,
+        ~df["PIN* [PARID]"].isin(valid_pins["pin"]),
+    )
 
     # also check if 10-digit PINs are valid to narrow down on problematic portion of invalid PINs
     df["pin_10digit"] = df["PIN* [PARID]"].astype("string").str[:10]
-    df["FLAG, INVALID: pin_10digit"] = np.where(df["pin_10digit"] == "", 0, ~df["pin_10digit"].isin(valid_pins["pin10"]))
+    df["FLAG, INVALID: pin_10digit"] = np.where(
+        df["pin_10digit"] == "",
+        0,
+        ~df["pin_10digit"].isin(valid_pins["pin10"]),
+    )
 
     # create variable that is the numbers following the 10-digit PIN
     # (not pulling last 4 digits from the end in case there are PINs that are not 14-digits in Chicago permit data)
     df["pin_suffix"] = df["PIN* [PARID]"].astype("string").str[10:]
 
     # comment for rows with invalid pin
-    df["FLAG COMMENTS"] += df["FLAG, INVALID: PIN* [PARID]"].apply(lambda val: "" if val == 0 else "PIN* [PARID] is invalid, see Original PIN for raw form; ")
-    df["FLAG COMMENTS"] += df["FLAG, INVALID: pin_10digit"].apply(lambda val: "" if val == 0 else "10-digit PIN is invalid; ")
+    df["FLAG COMMENTS"] += df["FLAG, INVALID: PIN* [PARID]"].apply(
+        lambda val: ""
+        if val == 0
+        else "PIN* [PARID] is invalid, see Original PIN for raw form; "
+    )
+    df["FLAG COMMENTS"] += df["FLAG, INVALID: pin_10digit"].apply(
+        lambda val: "" if val == 0 else "10-digit PIN is invalid; "
+    )
 
     return df
-
 
 
 def flag_fix_long_fields(df):
     # will use these abbreviations to shorten applicant name field (Applicant* [USER21]) within 50 character field limit
     name_shortening_dict = {
-        "ASSOCIATION":   "ASSN",
-        "COMPANY":      "CO",
-        "BUILDING":     "BLDG",
-        "FOUNDATION":   "FNDN",
-        "ILLINOIS":     "IL",
-        "STREET":       "ST",
-        "BOULEVARD":    "BLVD",
-        "AVENUE":       "AVE",
-        "APARTMENT":    "APT",
-        "APARTMENTS":   "APTS",
-        "MANAGEMENT":   "MGMT",
-        "CORPORATION":  "CORP",
+        "ASSOCIATION": "ASSN",
+        "COMPANY": "CO",
+        "BUILDING": "BLDG",
+        "FOUNDATION": "FNDN",
+        "ILLINOIS": "IL",
+        "STREET": "ST",
+        "BOULEVARD": "BLVD",
+        "AVENUE": "AVE",
+        "APARTMENT": "APT",
+        "APARTMENTS": "APTS",
+        "MANAGEMENT": "MGMT",
+        "CORPORATION": "CORP",
         "INCORPORATED": "INC",
-        "LIMITED":      "LTD",
-        "PLAZA":        "PLZ"
-}
+        "LIMITED": "LTD",
+        "PLAZA": "PLZ",
+    }
 
-    df["Applicant* [USER21]"] = df["Applicant* [USER21]"].replace(name_shortening_dict, regex=True)
+    df["Applicant* [USER21]"] = df["Applicant* [USER21]"].replace(
+        name_shortening_dict, regex=True
+    )
 
     # these fields have the following character limits in Smartfile / iasWorld, flag if over limit
     long_fields_to_flag = [
-        ("FLAG, LENGTH: Applicant Name", "Applicant* [USER21]", 50, "Applicant* [USER21] over 50 char limit by "),
-        ("FLAG, LENGTH: Permit Number", "Local Permit No.* [USER28]", 18, "Local Permit No.* [USER28] over 18 char limit by "),
-        ("FLAG, LENGTH: Applicant Street Address", "Applicant Street Address* [ADDR1]", 40, "Applicant Street Address* [ADDR1] over 40 char limit by "),
-        ("FLAG, LENGTH: Note1", "Notes [NOTE1]", 2000, "Notes [NOTE1] over 2000 char limit by ")
+        (
+            "FLAG, LENGTH: Applicant Name",
+            "Applicant* [USER21]",
+            50,
+            "Applicant* [USER21] over 50 char limit by ",
+        ),
+        (
+            "FLAG, LENGTH: Permit Number",
+            "Local Permit No.* [USER28]",
+            18,
+            "Local Permit No.* [USER28] over 18 char limit by ",
+        ),
+        (
+            "FLAG, LENGTH: Applicant Street Address",
+            "Applicant Street Address* [ADDR1]",
+            40,
+            "Applicant Street Address* [ADDR1] over 40 char limit by ",
+        ),
+        (
+            "FLAG, LENGTH: Note1",
+            "Notes [NOTE1]",
+            2000,
+            "Notes [NOTE1] over 2000 char limit by ",
+        ),
     ]
 
     for flag_name, column, limit, comment in long_fields_to_flag:
-        df[flag_name] = df[column].apply(lambda val: 0 if pd.isna(val) else (1 if len(str(val)) > limit else 0))
-        df["FLAG COMMENTS"] += df[column].apply(lambda val: "" if pd.isna(val) else ("" if len(str(val)) <= limit else comment + str(len(str(val)) - limit) + "; "))
+        df[flag_name] = df[column].apply(
+            lambda val: 0
+            if pd.isna(val)
+            else (1 if len(str(val)) > limit else 0)
+        )
+        df["FLAG COMMENTS"] += df[column].apply(
+            lambda val: ""
+            if pd.isna(val)
+            else (
+                ""
+                if len(str(val)) <= limit
+                else comment + str(len(str(val)) - limit) + "; "
+            )
+        )
 
     # round Amount to closest dollar because smart file doesn't accept decimal amounts, then flag values above upper limit
-    df["Amount* [AMOUNT]"] = pd.to_numeric(df["Amount* [AMOUNT]"], errors="coerce").round().astype("Int64")
-    df["FLAG, VALUE: Amount"] = df["Amount* [AMOUNT]"].apply(lambda value: 0 if pd.isna(value) or value <= 2147483647 else 1)
-    df["FLAG COMMENTS"] += df["Amount* [AMOUNT]"].apply(lambda value: "" if pd.isna(value) or value <= 2147483647 else "Amount* [AMOUNT] over value limit of 2147483647; ")
+    df["Amount* [AMOUNT]"] = (
+        pd.to_numeric(df["Amount* [AMOUNT]"], errors="coerce")
+        .round()
+        .astype("Int64")
+    )
+    df["FLAG, VALUE: Amount"] = df["Amount* [AMOUNT]"].apply(
+        lambda value: 0 if pd.isna(value) or value <= 2147483647 else 1
+    )
+    df["FLAG COMMENTS"] += df["Amount* [AMOUNT]"].apply(
+        lambda value: ""
+        if pd.isna(value) or value <= 2147483647
+        else "Amount* [AMOUNT] over value limit of 2147483647; "
+    )
 
     # also flag rows where fields are blank for manual review (for fields we're populating in smartfile template)
     empty_fields_to_flag = [
@@ -258,26 +398,47 @@ def flag_fix_long_fields(df):
         ("FLAG, EMPTY: Issue Date", "Issue Date* [PERMDT]"),
         ("FLAG, EMPTY: Amount", "Amount* [AMOUNT]"),
         ("FLAG, EMPTY: Applicant", "Applicant* [USER21]"),
-        ("FLAG, EMPTY: Applicant Street Address", "Applicant Street Address* [ADDR1]"),
+        (
+            "FLAG, EMPTY: Applicant Street Address",
+            "Applicant Street Address* [ADDR1]",
+        ),
         ("FLAG, EMPTY: Permit Number", "Local Permit No.* [USER28]"),
-        ("FLAG, EMPTY: Note1", "Notes [NOTE1]")
-        ]
+        ("FLAG, EMPTY: Note1", "Notes [NOTE1]"),
+    ]
 
     for flag_name, column in empty_fields_to_flag:
         comment = column + " is missing; "
-        df[flag_name] = df[column].apply(lambda val: 1 if pd.isna(val) or str(val).strip() == "" else 0)
-        df["FLAG COMMENTS"] += df[flag_name].apply(lambda val: "" if val == 0 else comment)
+        df[flag_name] = df[column].apply(
+            lambda val: 1 if pd.isna(val) or str(val).strip() == "" else 0
+        )
+        df["FLAG COMMENTS"] += df[flag_name].apply(
+            lambda val: "" if val == 0 else comment
+        )
 
     # create columns for total number of flags for length and for missingness since they'll get sorted into separate excel files
-    df["FLAGS, TOTAL - LENGTH/VALUE"] = df.filter(like="FLAG, LENGTH").values.sum(axis=1) + df.filter(like="FLAG, VALUE").values.sum(axis=1)
-    df["FLAGS, TOTAL - EMPTY/INVALID"] = df.filter(like="FLAG, EMPTY").values.sum(axis=1) + df.filter(like="FLAG, INVALID").values.sum(axis=1)
+    df["FLAGS, TOTAL - LENGTH/VALUE"] = df.filter(
+        like="FLAG, LENGTH"
+    ).values.sum(axis=1) + df.filter(like="FLAG, VALUE").values.sum(axis=1)
+    df["FLAGS, TOTAL - EMPTY/INVALID"] = df.filter(
+        like="FLAG, EMPTY"
+    ).values.sum(axis=1) + df.filter(like="FLAG, INVALID").values.sum(axis=1)
 
     # need a column that identifies rows with flags for field length/amount but no flags for emptiness/invalidness
     # since these two categories will get split into separate excel workbooks
-    df["MANUAL REVIEW"] = np.where((df["FLAGS, TOTAL - EMPTY/INVALID"] == 0) & (df["FLAGS, TOTAL - LENGTH/VALUE"] > 0), 1, 0)
+    df["MANUAL REVIEW"] = np.where(
+        (df["FLAGS, TOTAL - EMPTY/INVALID"] == 0)
+        & (df["FLAGS, TOTAL - LENGTH/VALUE"] > 0),
+        1,
+        0,
+    )
 
     # for ease of analysts viewing, edits flag columns to read "Yes" when row is flagged and blank otherwise (easier than columns of 0s and 1s)
-    flag_columns = list(df.filter(like="FLAG, LENGTH").columns) + list(df.filter(like="FLAG, VALUE").columns) + list(df.filter(like="FLAG, EMPTY").columns) + list(df.filter(like="FLAG, INVALID").columns)
+    flag_columns = (
+        list(df.filter(like="FLAG, LENGTH").columns)
+        + list(df.filter(like="FLAG, VALUE").columns)
+        + list(df.filter(like="FLAG, EMPTY").columns)
+        + list(df.filter(like="FLAG, INVALID").columns)
+    )
     df[flag_columns] = df[flag_columns].replace({0: "", 1: "Yes"})
 
     return df
@@ -305,7 +466,6 @@ def deduplicate_permits(cursor, df, start_date, end_date):
         "Issue Date* [PERMDT]": "permdt",
         "Amount* [AMOUNT]": "amount",
         "Applicant Street Address* [ADDR1]": "note2",
-        "Applicant* [USER21]": "user21",
         "Local Permit No.* [USER28]": "user28",
         "Notes [NOTE1]": "user43",
     }
@@ -316,17 +476,23 @@ def deduplicate_permits(cursor, df, start_date, end_date):
     # Transform new columns to ensure they match the iasworld formatting
     new_permits["amount"] = new_permits["amount"].apply(
         lambda x: decimal.Decimal("{:.2f}".format(x))
+        if not pd.isnull(x)
+        else x
     )
+
     new_permits["permdt"] = new_permits["permdt"].apply(
         lambda x: datetime.strptime(x, "%m/%d/%Y").strftime(
             "%Y-%m-%d %H:%M:%S.%f"
-        )[:-5]
+        )[:-3]
     )
     new_permits["note2"] = new_permits["note2"] + ",,CHICAGO, IL"
-    new_permits["user43"] = new_permits["user43"].str.replace(
-        "(", ""
-    ).replace(")", "")
-    new_permits["user43"] = new_permits["user43"].str.slice(0, 261)
+    new_permits["user43"] = (
+        new_permits["user43"]
+        # Replace special characters that Smartfile removes
+        .str.replace(r"""[():;+#*&'"@½]""", "", regex=True)
+        # Truncate description to match Smartfile length limit
+        .str.slice(0, 259)
+    )
 
     # Antijoin new_permits to existing_permits to find permits that do
     # not exist in iasworld
@@ -335,7 +501,7 @@ def deduplicate_permits(cursor, df, start_date, end_date):
         existing_permits,
         how="left",
         on=list(workbook_to_iasworld_col_map.values()),
-        indicator=True
+        indicator=True,
     )
     true_new_permits = merged_permits[merged_permits["_merge"] == "left_only"]
     true_new_permits = true_new_permits.drop("_merge", axis=1)
@@ -354,59 +520,125 @@ def gen_file_base_name():
 
 def save_xlsx_files(df, max_rows, file_base_name):
     # separate rows that are ready for upload from ones that need manual review or have missing or invalid PINs
-    df_ready = df[(df["FLAGS, TOTAL - LENGTH/VALUE"] == 0) & (df["FLAGS, TOTAL - EMPTY/INVALID"] == 0)].reset_index()
-    df_ready = df_ready.drop(columns=df_ready.filter(like="FLAG").columns).\
-        drop(columns=["index", "Original PIN", "MANUAL REVIEW", "pin_10digit", "pin_suffix"])
+    df_ready = df[
+        (df["FLAGS, TOTAL - LENGTH/VALUE"] == 0)
+        & (df["FLAGS, TOTAL - EMPTY/INVALID"] == 0)
+    ].reset_index()
+    df_ready = df_ready.drop(
+        columns=df_ready.filter(like="FLAG").columns
+    ).drop(
+        columns=[
+            "index",
+            "Original PIN",
+            "MANUAL REVIEW",
+            "pin_10digit",
+            "pin_suffix",
+        ]
+    )
 
     df_review_length = df[df["MANUAL REVIEW"] == 1].reset_index()
-    df_review_length = df_review_length.drop(columns=df_review_length.filter(like="FLAG, EMPTY")).\
-        drop(columns=df_review_length.filter(like="FLAG, INVALID")).\
-        drop(columns=["Original PIN", "FLAGS, TOTAL - EMPTY/INVALID", "index", "MANUAL REVIEW", "pin_10digit", "pin_suffix"])
+    df_review_length = (
+        df_review_length.drop(
+            columns=df_review_length.filter(like="FLAG, EMPTY")
+        )
+        .drop(columns=df_review_length.filter(like="FLAG, INVALID"))
+        .drop(
+            columns=[
+                "Original PIN",
+                "FLAGS, TOTAL - EMPTY/INVALID",
+                "index",
+                "MANUAL REVIEW",
+                "pin_10digit",
+                "pin_suffix",
+            ]
+        )
+    )
 
-    df_review_empty_invalid = df[df["FLAGS, TOTAL - EMPTY/INVALID"] > 0].reset_index().\
-        drop(columns=["index", "MANUAL REVIEW", "pin_10digit", "pin_suffix"])
+    df_review_empty_invalid = (
+        df[df["FLAGS, TOTAL - EMPTY/INVALID"] > 0]
+        .reset_index()
+        .drop(columns=["index", "MANUAL REVIEW", "pin_10digit", "pin_suffix"])
+    )
 
     print("# rows ready for upload: ", len(df_ready))
     print("# rows flagged for length: ", len(df_review_length))
-    print("# rows flagged for empty/invalid fields: ", len(df_review_empty_invalid))
+    print(
+        "# rows flagged for empty/invalid fields: ",
+        len(df_review_empty_invalid),
+    )
 
     # create new folders with today's date to save xlsx files in (1 each for ready, needing manual shortening of fields, have missing fields or invalid PIN)
-    folder_for_files_ready = datetime.today().date().strftime("files_for_smartfile_%Y_%m_%d")
-    os.makedirs(folder_for_files_ready, exist_ok=True) # note this will override an existing folder with same name
-    folder_for_files_review_length = datetime.today().date().strftime("files_for_review_length_%Y_%m_%d")
-    os.makedirs(folder_for_files_review_length, exist_ok=True) # note this will override an existing folder with same name
-    folder_for_files_review_empty_invalid = datetime.today().date().strftime("files_for_review_empty_invalid_%Y_%m_%d")
-    os.makedirs(folder_for_files_review_empty_invalid, exist_ok=True) # note this will override an existing folder with same name
+    folder_for_files_ready = (
+        datetime.today().date().strftime("files_for_smartfile_%Y_%m_%d")
+    )
+    os.makedirs(
+        folder_for_files_ready, exist_ok=True
+    )  # note this will override an existing folder with same name
+    folder_for_files_review_length = (
+        datetime.today().date().strftime("files_for_review_length_%Y_%m_%d")
+    )
+    os.makedirs(
+        folder_for_files_review_length, exist_ok=True
+    )  # note this will override an existing folder with same name
+    folder_for_files_review_empty_invalid = (
+        datetime.today()
+        .date()
+        .strftime("files_for_review_empty_invalid_%Y_%m_%d")
+    )
+    os.makedirs(
+        folder_for_files_review_empty_invalid, exist_ok=True
+    )  # note this will override an existing folder with same name
 
     # save ready permits batched into 200 permits max per excel file
     num_files_ready = math.ceil(len(df_ready) / max_rows)
-    print("creating " + str(num_files_ready) + " xlsx files ready for SmartFile upload")
+    print(
+        "creating "
+        + str(num_files_ready)
+        + " xlsx files ready for SmartFile upload"
+    )
     for i in range(num_files_ready):
         start_index = i * max_rows
         end_index = (i + 1) * max_rows
         file_dataframe = df_ready.iloc[start_index:end_index].copy()
-        file_dataframe.reset_index(drop=True, inplace=True) # each xlsx file needs an index from 1 to 200
+        file_dataframe.reset_index(
+            drop=True, inplace=True
+        )  # each xlsx file needs an index from 1 to 200
         file_dataframe.index = file_dataframe.index + 1
         file_dataframe.index.name = "# [LLINE]"
         file_dataframe = file_dataframe.reset_index()
-        file_name = os.path.join(folder_for_files_ready, file_base_name + f"ready_{i+1}.xlsx")
+        file_name = os.path.join(
+            folder_for_files_ready, file_base_name + f"ready_{i + 1}.xlsx"
+        )
         file_dataframe.to_excel(file_name, index=False, engine="xlsxwriter")
 
     # permits needing manual field shortening and those with missing fields will be saved as single xlsx files, not batched by 200 rows
     df_review_length.index = df_review_length.index + 1
     df_review_length.index.name = "# [LLINE]"
     df_review_length = df_review_length.reset_index()
-    file_name_review_length = os.path.join(folder_for_files_review_length, file_base_name + "review_length.xlsx")
-    df_review_length.to_excel(file_name_review_length, index=False, engine="xlsxwriter")
+    file_name_review_length = os.path.join(
+        folder_for_files_review_length, file_base_name + "review_length.xlsx"
+    )
+    df_review_length.to_excel(
+        file_name_review_length, index=False, engine="xlsxwriter"
+    )
 
-    df_review_empty_invalid.index = df_review_empty_invalid.index +1
+    df_review_empty_invalid.index = df_review_empty_invalid.index + 1
     df_review_empty_invalid.index.name = "# [LLINE]"
     df_review_empty_invalid = df_review_empty_invalid.reset_index()
-    file_name_review_empty_invalid = os.path.join(folder_for_files_review_empty_invalid, file_base_name + "review_empty_invalid.xlsx")
-    df_review_empty_invalid.to_excel(file_name_review_empty_invalid, index=False, engine="xlsxwriter")
+    file_name_review_empty_invalid = os.path.join(
+        folder_for_files_review_empty_invalid,
+        file_base_name + "review_empty_invalid.xlsx",
+    )
+    df_review_empty_invalid.to_excel(
+        file_name_review_empty_invalid, index=False, engine="xlsxwriter"
+    )
 
 
 if __name__ == "__main__":
+    # Parse command line arguments
+    start_date, end_date, deduplicate = parse_args()
+
+    # Set up database connection cursor to query Athena
     conn = connect(
         s3_staging_dir=os.getenv(
             "AWS_ATHENA_S3_STAGING_DIR",
@@ -419,17 +651,18 @@ if __name__ == "__main__":
     )
     cursor = conn.cursor()
 
-    if os.path.exists("chicago_pin_universe.csv"):
-        print("Loading Chicago PIN universe data from csv.")
+    pin_cache_filename = get_pin_cache_filename(start_date, end_date)
+    if os.path.exists(pin_cache_filename):
+        print(f"Loading Chicago PIN universe data from {pin_cache_filename}")
         chicago_pin_universe = pd.read_csv(
-            "chicago_pin_universe.csv",
-            dtype={"pin": "string", "pin10": "string"}
+            pin_cache_filename,
+            dtype={"pin": "string", "pin10": "string"},
         )
     else:
-        chicago_pin_universe = pull_existing_pins_from_athena(cursor)
-
-    start_date, end_date, deduplicate = sys.argv[1], sys.argv[2], sys.argv[3]
-    deduplicate = deduplicate.lower() == "true"
+        print("Pulling PINs from Athena")
+        chicago_pin_universe = pull_existing_pins_from_athena(
+            cursor, start_date, end_date
+        )
 
     permits = download_permits(start_date, end_date)
     print(
@@ -448,7 +681,9 @@ if __name__ == "__main__":
 
     permits_renamed = organize_columns(permits_expanded)
 
-    permits_validated = flag_invalid_pins(permits_renamed, chicago_pin_universe)
+    permits_validated = flag_invalid_pins(
+        permits_renamed, chicago_pin_universe
+    )
 
     permits_shortened = flag_fix_long_fields(permits_validated)
 
@@ -458,15 +693,9 @@ if __name__ == "__main__":
             f"{len(permits_shortened)}"
         )
         permits_deduped = deduplicate_permits(
-            cursor,
-            permits_shortened,
-            start_date,
-            end_date
+            cursor, permits_shortened, start_date, end_date
         )
-        print(
-            "Number of permits after deduplication: "
-            f"{len(permits_deduped)}"
-        )
+        print(f"Number of permits after deduplication: {len(permits_deduped)}")
     else:
         permits_deduped = permits_shortened
 
