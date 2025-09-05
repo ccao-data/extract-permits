@@ -633,7 +633,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
         file_name_review_empty_invalid, index=False, engine="xlsxwriter"
     )
 
-
 if __name__ == "__main__":
     # Parse command line arguments
     start_date, end_date, deduplicate = parse_args()
