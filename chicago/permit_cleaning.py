@@ -24,6 +24,7 @@ The following will also need to be updated:
 import decimal
 import math
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -439,6 +440,39 @@ def flag_fix_long_fields(df):
     )
     df[flag_columns] = df[flag_columns].replace({0: "", 1: "Yes"})
 
+    df = df.merge(
+        chicago_pin_universe[["pin", "prop_address_full"]],
+        left_on="Applicant Street Address* [ADDR1]",
+        right_on="prop_address_full",
+        how="left",
+    ).rename(columns={"pin": "Predicted PIN based on Address"})
+
+    df = df.drop(columns=["prop_address_full"])
+
+    keywords = [
+        "remodel",
+        "demolition",
+        "construction",
+        "solar",
+        "roof",
+        "foundation",
+    ]
+
+    df = df.assign(
+        Assessable_Prediction=lambda x: x["Notes [NOTE1]"].apply(
+            lambda note: (
+                "Assessable"
+                if any(
+                    kw in re.sub(r"[^a-z]", "", str(note).lower())
+                    for kw in [
+                        re.sub(r"[^a-z]", "", k.lower()) for k in keywords
+                    ]
+                )
+                else "Not Assessable"
+            )
+        )
+    )
+
     return df
 
 
@@ -615,6 +649,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
         df_other.index.name = "# [LLINE]"
         df_other = df_other.reset_index()
         df_other.to_excel(writer, sheet_name="Other", index=False)
+
 
 if __name__ == "__main__":
     # Parse command line arguments
