@@ -104,12 +104,16 @@ def pull_existing_pins_from_athena(
     end_year = year_from_date_string(end_date)
 
     SQL_QUERY = """
-        SELECT DISTINCT
-            CAST(pin AS varchar) AS pin,
-            CAST(pin10 AS varchar) AS pin10
-        FROM default.vw_pin_universe
-        WHERE triad_name = 'City'
-            AND year BETWEEN %(start_year)s AND %(end_year)s
+    SELECT DISTINCT
+        CAST(u.pin AS varchar) AS pin,
+        CAST(u.pin10 AS varchar) AS pin10,
+        a.prop_address_full
+    FROM default.vw_pin_universe u
+    LEFT JOIN default.vw_pin_address a
+        ON u.pin = a.pin
+    AND u.year = a.year
+    WHERE u.triad_name = 'City'
+    AND u.year BETWEEN %(start_year)s AND %(end_year)s;
     """
     cursor.execute(SQL_QUERY, {"start_year": start_year, "end_year": end_year})
     chicago_pin_universe = as_pandas(cursor)
@@ -393,20 +397,15 @@ def flag_fix_long_fields(df):
     )
 
     # also flag rows where fields are blank for manual review (for fields we're populating in smartfile template)
-    empty_fields_to_flag = [
-        ("FLAG, EMPTY: PIN", "PIN* [PARID]"),
-        ("FLAG, EMPTY: Issue Date", "Issue Date* [PERMDT]"),
-        ("FLAG, EMPTY: Amount", "Amount* [AMOUNT]"),
-        ("FLAG, EMPTY: Applicant", "Applicant* [USER21]"),
-        (
-            "FLAG, EMPTY: Applicant Street Address",
-            "Applicant Street Address* [ADDR1]",
-        ),
-        ("FLAG, EMPTY: Permit Number", "Local Permit No.* [USER28]"),
-        ("FLAG, EMPTY: Note1", "Notes [NOTE1]"),
+    flag_pin_cols = [
+        col
+        for col in df.columns
+        if "flag" in str(col).lower() and "pin" in str(col).lower()
     ]
 
-    for flag_name, column in empty_fields_to_flag:
+    pin_fields = [(col, "PIN* [PARID]") for col in flag_pin_cols]
+
+    for flag_name, column in pin_fields:
         comment = column + " is missing; "
         df[flag_name] = df[column].apply(
             lambda val: 1 if pd.isna(val) or str(val).strip() == "" else 0
@@ -416,18 +415,17 @@ def flag_fix_long_fields(df):
         )
 
     # create columns for total number of flags for length and for missingness since they'll get sorted into separate excel files
-    df["FLAGS, TOTAL - LENGTH/VALUE"] = df.filter(
-        like="FLAG, LENGTH"
-    ).values.sum(axis=1) + df.filter(like="FLAG, VALUE").values.sum(axis=1)
-    df["FLAGS, TOTAL - EMPTY/INVALID"] = df.filter(
-        like="FLAG, EMPTY"
-    ).values.sum(axis=1) + df.filter(like="FLAG, INVALID").values.sum(axis=1)
+    df["FLAGS, TOTAL - PIN"] = df.filter(like="FLAG, LENGTH").values.sum(
+        axis=1
+    ) + df.filter(like="FLAG, VALUE").values.sum(axis=1)
+    df["FLAGS, TOTAL - OTHER"] = df.filter(like="FLAG, EMPTY").values.sum(
+        axis=1
+    ) + df.filter(like="FLAG, INVALID").values.sum(axis=1)
 
     # need a column that identifies rows with flags for field length/amount but no flags for emptiness/invalidness
     # since these two categories will get split into separate excel workbooks
     df["MANUAL REVIEW"] = np.where(
-        (df["FLAGS, TOTAL - EMPTY/INVALID"] == 0)
-        & (df["FLAGS, TOTAL - LENGTH/VALUE"] > 0),
+        (df["FLAGS, TOTAL - PIN"] == 0) & (df["FLAGS, TOTAL - OTHER"] > 0),
         1,
         0,
     )
@@ -521,8 +519,7 @@ def gen_file_base_name():
 def save_xlsx_files(df, max_rows, file_base_name):
     # separate rows that are ready for upload from ones that need manual review or have missing or invalid PINs
     df_ready = df[
-        (df["FLAGS, TOTAL - LENGTH/VALUE"] == 0)
-        & (df["FLAGS, TOTAL - EMPTY/INVALID"] == 0)
+        (df["FLAGS, TOTAL - PIN"] == 0) & (df["FLAGS, TOTAL - OTHER"] == 0)
     ].reset_index()
     df_ready = df_ready.drop(
         columns=df_ready.filter(like="FLAG").columns
@@ -536,16 +533,14 @@ def save_xlsx_files(df, max_rows, file_base_name):
         ]
     )
 
-    df_review_length = df[df["MANUAL REVIEW"] == 1].reset_index()
-    df_review_length = (
-        df_review_length.drop(
-            columns=df_review_length.filter(like="FLAG, EMPTY")
-        )
-        .drop(columns=df_review_length.filter(like="FLAG, INVALID"))
+    df_other = df[df["MANUAL REVIEW"] == 1].reset_index()
+    df_other = (
+        df_other.drop(columns=df_other.filter(like="FLAG, PIN"))
+        .drop(columns=df_other.filter(like="FLAG, OTHER"))
         .drop(
             columns=[
                 "Original PIN",
-                "FLAGS, TOTAL - EMPTY/INVALID",
+                "FLAGS, TOTAL - OTHER",
                 "index",
                 "MANUAL REVIEW",
                 "pin_10digit",
@@ -554,18 +549,18 @@ def save_xlsx_files(df, max_rows, file_base_name):
         )
     )
 
-    df_review_empty_invalid = (
-        df[df["FLAGS, TOTAL - EMPTY/INVALID"] > 0]
+    df_review_pin_error = (
+        df[df["FLAGS, TOTAL - PIN"] > 0]
         .reset_index()
         .drop(columns=["index", "MANUAL REVIEW", "pin_10digit", "pin_suffix"])
     )
 
     print("# rows ready for upload: ", len(df_ready))
-    print("# rows flagged for length: ", len(df_review_length))
     print(
-        "# rows flagged for empty/invalid fields: ",
-        len(df_review_empty_invalid),
+        "# rows flagged for pin error: ",
+        len(df_review_pin_error),
     )
+    print("# rows flagged for other errors: ", len(df_other))
 
     # create new folders with today's date to save xlsx files in (1 each for ready, needing manual shortening of fields, have missing fields or invalid PIN)
     folder_for_files_ready = (
@@ -574,19 +569,11 @@ def save_xlsx_files(df, max_rows, file_base_name):
     os.makedirs(
         folder_for_files_ready, exist_ok=True
     )  # note this will override an existing folder with same name
-    folder_for_files_review_length = (
-        datetime.today().date().strftime("files_for_review_length_%Y_%m_%d")
+    folder_for_files_review = (
+        datetime.today().date().strftime("files_for_review_%Y_%m_%d")
     )
     os.makedirs(
-        folder_for_files_review_length, exist_ok=True
-    )  # note this will override an existing folder with same name
-    folder_for_files_review_empty_invalid = (
-        datetime.today()
-        .date()
-        .strftime("files_for_review_empty_invalid_%Y_%m_%d")
-    )
-    os.makedirs(
-        folder_for_files_review_empty_invalid, exist_ok=True
+        folder_for_files_review, exist_ok=True
     )  # note this will override an existing folder with same name
 
     # save ready permits batched into 200 permits max per excel file
@@ -612,26 +599,22 @@ def save_xlsx_files(df, max_rows, file_base_name):
         file_dataframe.to_excel(file_name, index=False, engine="xlsxwriter")
 
     # permits needing manual field shortening and those with missing fields will be saved as single xlsx files, not batched by 200 rows
-    df_review_length.index = df_review_length.index + 1
-    df_review_length.index.name = "# [LLINE]"
-    df_review_length = df_review_length.reset_index()
-    file_name_review_length = os.path.join(
-        folder_for_files_review_length, file_base_name + "review_length.xlsx"
+    # Create a single Excel file with two sheets: "PIN" and "Other"
+    file_name_combined = os.path.join(
+        folder_for_files_review, file_base_name + "review.xlsx"
     )
-    df_review_length.to_excel(
-        file_name_review_length, index=False, engine="xlsxwriter"
-    )
+    with pd.ExcelWriter(file_name_combined, engine="xlsxwriter") as writer:
+        # Write the "PIN" sheet
+        df_review_pin_error.index = df_review_pin_error.index + 1
+        df_review_pin_error.index.name = "# [LLINE]"
+        df_review_pin_error = df_review_pin_error.reset_index()
+        df_review_pin_error.to_excel(writer, sheet_name="PIN", index=False)
 
-    df_review_empty_invalid.index = df_review_empty_invalid.index + 1
-    df_review_empty_invalid.index.name = "# [LLINE]"
-    df_review_empty_invalid = df_review_empty_invalid.reset_index()
-    file_name_review_empty_invalid = os.path.join(
-        folder_for_files_review_empty_invalid,
-        file_base_name + "review_empty_invalid.xlsx",
-    )
-    df_review_empty_invalid.to_excel(
-        file_name_review_empty_invalid, index=False, engine="xlsxwriter"
-    )
+        # Write the "Other" sheet
+        df_other.index = df_other.index + 1
+        df_other.index.name = "# [LLINE]"
+        df_other = df_other.reset_index()
+        df_other.to_excel(writer, sheet_name="Other", index=False)
 
 if __name__ == "__main__":
     # Parse command line arguments
