@@ -315,7 +315,7 @@ def flag_invalid_pins(df, valid_pins):
     return df
 
 
-def flag_fix_long_fields(df):
+def flag_fix_long_fields(df, chicago_pin_universe):
     # will use these abbreviations to shorten applicant name field (Applicant* [USER21]) within 50 character field limit
     name_shortening_dict = {
         "ASSOCIATION": "ASSN",
@@ -446,9 +446,38 @@ def flag_fix_long_fields(df):
         left_on="Applicant Street Address* [ADDR1]",
         right_on="prop_address_full",
         how="left",
-    ).rename(columns={"pin": "Suggested PINs"})
+    )
 
+    df.insert(
+        df.columns.get_loc("Applicant Street Address* [ADDR1]") + 1,
+        "Property Address",
+        df["Applicant Street Address* [ADDR1]"],
+    )
+
+    # Suggested PINs (replace NA with NO PIN FOUND)
+    df = df.rename(columns={"pin": "Suggested PINs"})
+    df["Suggested PINs"] = df["Suggested PINs"].fillna("NO PIN FOUND")
+
+    # Drop the prop_address_full column (no longer needed)
     df = df.drop(columns=["prop_address_full"])
+
+    # Add hyperlink for the Property Address
+    df["Property Address"] = df["Property Address"].apply(
+        lambda addr: (
+            f'=HYPERLINK("https://maps.cookcountyil.gov/cookviewer/?search={addr}", "{addr}")'
+            if pd.notna(addr)
+            else ""
+        )
+    )
+
+    # Add hyperlink for the Suggested PINs
+    def make_pin_hyperlink(pin):
+        if pd.isna(pin):
+            return "NO PIN FOUND"
+        pin_str = f"{pin[0:2]}-{pin[2:4]}-{pin[4:7]}-{pin[7:10]}-{pin[10:14]}"
+        return f'=HYPERLINK("https://www.cookcountyassessoril.gov/pin/{pin}", "{pin_str}")'
+
+    df["Suggested PINs"] = df["Suggested PINs"].apply(make_pin_hyperlink)
 
     keywords = [
         "remodel",
@@ -769,7 +798,9 @@ if __name__ == "__main__":
         permits_renamed, chicago_pin_universe
     )
 
-    permits_shortened = flag_fix_long_fields(permits_validated)
+    permits_shortened = flag_fix_long_fields(
+        permits_validated, chicago_pin_universe
+    )
 
     if deduplicate:
         print(
