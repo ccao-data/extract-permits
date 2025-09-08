@@ -29,6 +29,7 @@ import sys
 from datetime import datetime
 
 import numpy as np
+import openpyxl
 import pandas as pd
 import requests
 from pyathena import connect
@@ -445,7 +446,7 @@ def flag_fix_long_fields(df):
         left_on="Applicant Street Address* [ADDR1]",
         right_on="prop_address_full",
         how="left",
-    ).rename(columns={"pin": "Predicted PIN based on Address"})
+    ).rename(columns={"pin": "Suggested PINs"})
 
     df = df.drop(columns=["prop_address_full"])
 
@@ -459,16 +460,16 @@ def flag_fix_long_fields(df):
     ]
 
     df = df.assign(
-        Assessable_Prediction=lambda x: x["Notes [NOTE1]"].apply(
+        Likely_Assessable=lambda x: x["Notes [NOTE1]"].apply(
             lambda note: (
-                "Assessable"
+                "Yes"
                 if any(
                     kw in re.sub(r"[^a-z]", "", str(note).lower())
                     for kw in [
                         re.sub(r"[^a-z]", "", k.lower()) for k in keywords
                     ]
                 )
-                else "Not Assessable"
+                else "No"
             )
         )
     )
@@ -634,21 +635,87 @@ def save_xlsx_files(df, max_rows, file_base_name):
 
     # permits needing manual field shortening and those with missing fields will be saved as single xlsx files, not batched by 200 rows
     # Create a single Excel file with two sheets: "PIN" and "Other"
+
+    # Define the exact column order
+    COL_ORDER = [
+        "# [LLINE]",
+        "Original PIN",
+        "PIN* [PARID]",
+        "Local Permit No.* [USER28]",
+        "Issue Date* [PERMDT]",
+        "Desc 1* [DESC1]",
+        "Desc 2 Code 1 [USER6]",
+        "Desc 2 Code 2 [USER7]",
+        "Desc 2 Code 3 [USER8]",
+        "Amount* [AMOUNT]",
+        "Assessable [IS_ASSESS]",
+        "Applicant Street Address* [ADDR1]",
+        "Applicant Address 2 [ADDR2]",
+        "Applicant City, State, Zip* [ADDR3]",
+        "Contact Phone* [PHONE]",
+        "Applicant* [USER21]",
+        "Notes [NOTE1]",
+        "Occupy Dt [UDATE1]",
+        "Submit Dt* [CERTDATE]",
+        "Est Comp Dt [UDATE2]",
+        "FLAG COMMENTS",
+        "FLAG, INVALID: PIN* [PARID]",
+        "FLAG, INVALID: pin_10digit",
+        "FLAG, LENGTH: Applicant Name",
+        "FLAG, LENGTH: Permit Number",
+        "FLAG, LENGTH: Applicant Street Address",
+        "FLAG, LENGTH: Note1",
+        "FLAG, VALUE: Amount",
+        "FLAG, EMPTY: PIN",
+        "FLAG, EMPTY: Issue Date",
+        "FLAG, EMPTY: Amount",
+        "FLAG, EMPTY: Applicant",
+        "FLAG, EMPTY: Applicant Street Address",
+        "FLAG, EMPTY: Permit Number",
+        "FLAG, EMPTY: Note1",
+        "FLAGS, TOTAL - LENGTH/VALUE",
+        "FLAGS, TOTAL - EMPTY/INVALID",
+        "Property Address",
+        "Suggested PINs",
+        "Likely Assessable",
+    ]
+
     file_name_combined = os.path.join(
         folder_for_files_review, file_base_name + "review.xlsx"
     )
-    with pd.ExcelWriter(file_name_combined, engine="xlsxwriter") as writer:
-        # Write the "PIN" sheet
+
+    # Copy template workbook first
+    template_file = "template/permits_template.xlsx"
+    wb = openpyxl.load_workbook(template_file)
+    wb.save(file_name_combined)
+
+    with pd.ExcelWriter(
+        file_name_combined,
+        engine="openpyxl",
+        mode="a",
+        if_sheet_exists="overlay",
+    ) as writer:
+        # PIN_Error sheet
         df_review_pin_error.index = df_review_pin_error.index + 1
         df_review_pin_error.index.name = "# [LLINE]"
         df_review_pin_error = df_review_pin_error.reset_index()
-        df_review_pin_error.to_excel(writer, sheet_name="PIN", index=False)
+        df_review_pin_error = df_review_pin_error.reindex(columns=COL_ORDER)
+        df_review_pin_error.to_excel(
+            writer,
+            sheet_name="Pin_Error",
+            index=False,
+            header=False,
+            startrow=1,
+        )
 
-        # Write the "Other" sheet
+        # Other sheet
         df_other.index = df_other.index + 1
         df_other.index.name = "# [LLINE]"
         df_other = df_other.reset_index()
-        df_other.to_excel(writer, sheet_name="Other", index=False)
+        df_other = df_other.reindex(columns=COL_ORDER)
+        df_other.to_excel(
+            writer, sheet_name="Other", index=False, header=False, startrow=1
+        )
 
 
 if __name__ == "__main__":
