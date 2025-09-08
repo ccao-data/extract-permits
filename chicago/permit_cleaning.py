@@ -416,21 +416,49 @@ def flag_fix_long_fields(df, chicago_pin_universe):
             lambda val: "" if val == 0 else comment
         )
 
-    # create columns for total number of flags for length and for missingness since they'll get sorted into separate excel files
-    df["FLAGS, TOTAL - PIN"] = df.filter(like="FLAG, LENGTH").values.sum(
-        axis=1
-    ) + df.filter(like="FLAG, VALUE").values.sum(axis=1)
-    df["FLAGS, TOTAL - OTHER"] = df.filter(like="FLAG, EMPTY").values.sum(
-        axis=1
-    ) + df.filter(like="FLAG, INVALID").values.sum(axis=1)
+    # 1) Identify flag columns (case-insensitive)
+    pin_flag_cols = [
+        c
+        for c in df.columns
+        if "flag" in str(c).lower() and "pin" in str(c).lower()
+    ]
+    other_flag_cols = [
+        c
+        for c in df.columns
+        if "flag" in str(c).lower() and "pin" not in str(c).lower()
+    ]
 
-    # need a column that identifies rows with flags for field length/amount but no flags for emptiness/invalidness
-    # since these two categories will get split into separate excel workbooks
-    df["MANUAL REVIEW"] = np.where(
-        (df["FLAGS, TOTAL - PIN"] == 0) & (df["FLAGS, TOTAL - OTHER"] > 0),
-        1,
-        0,
+    # 2) Normalize to numeric 0/1 (non-numeric/NaN -> 0)
+    if pin_flag_cols:
+        df[pin_flag_cols] = (
+            df[pin_flag_cols]
+            .apply(pd.to_numeric, errors="coerce")
+            .fillna(0)
+            .astype(int)
+        )
+    if other_flag_cols:
+        df[other_flag_cols] = (
+            df[other_flag_cols]
+            .apply(pd.to_numeric, errors="coerce")
+            .fillna(0)
+            .astype(int)
+        )
+
+    # 3) Totals
+    df["FLAGS, TOTAL - PIN"] = (
+        df[pin_flag_cols].sum(axis=1) if pin_flag_cols else 0
     )
+    df["FLAGS, TOTAL - OTHER"] = (
+        df[other_flag_cols].sum(axis=1) if other_flag_cols else 0
+    )
+
+    # 4) Split:
+    #    - pin_error: any PIN flag == 1
+    #    - other: no PIN flags, but at least one OTHER flag
+    df_pin_error = df[df["FLAGS, TOTAL - PIN"] > 0].copy()
+    df_other = df[
+        (df["FLAGS, TOTAL - PIN"] == 0) & (df["FLAGS, TOTAL - OTHER"] > 0)
+    ].copy()
 
     # for ease of analysts viewing, edits flag columns to read "Yes" when row is flagged and blank otherwise (easier than columns of 0s and 1s)
     flag_columns = (
@@ -472,7 +500,7 @@ def flag_fix_long_fields(df, chicago_pin_universe):
 
     # Add hyperlink for the Suggested PINs
     def make_pin_hyperlink(pin):
-        if pd.isna(pin):
+        if pd.isna(pin) or str(pin).strip().upper() == "NO PIN FOUND":
             return "NO PIN FOUND"
         pin_str = f"{pin[0:2]}-{pin[2:4]}-{pin[4:7]}-{pin[7:10]}-{pin[10:14]}"
         return f'=HYPERLINK("https://www.cookcountyassessoril.gov/pin/{pin}", "{pin_str}")'
@@ -493,10 +521,8 @@ def flag_fix_long_fields(df, chicago_pin_universe):
             lambda note: (
                 "Yes"
                 if any(
-                    kw in re.sub(r"[^a-z]", "", str(note).lower())
-                    for kw in [
-                        re.sub(r"[^a-z]", "", k.lower()) for k in keywords
-                    ]
+                    kw in re.sub(r"[^a-z\s]", "", str(note).lower())
+                    for kw in keywords
                 )
                 else "No"
             )
@@ -591,13 +617,12 @@ def save_xlsx_files(df, max_rows, file_base_name):
         columns=[
             "index",
             "Original PIN",
-            "MANUAL REVIEW",
             "pin_10digit",
             "pin_suffix",
         ]
     )
 
-    df_other = df[df["MANUAL REVIEW"] == 1].reset_index()
+    df_other = df[df["FLAGS, TOTAL - OTHER"] > 0].reset_index()
     df_other = (
         df_other.drop(columns=df_other.filter(like="FLAG, PIN"))
         .drop(columns=df_other.filter(like="FLAG, OTHER"))
@@ -606,7 +631,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
                 "Original PIN",
                 "FLAGS, TOTAL - OTHER",
                 "index",
-                "MANUAL REVIEW",
                 "pin_10digit",
                 "pin_suffix",
             ]
@@ -616,7 +640,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
     df_review_pin_error = (
         df[df["FLAGS, TOTAL - PIN"] > 0]
         .reset_index()
-        .drop(columns=["index", "MANUAL REVIEW", "pin_10digit", "pin_suffix"])
+        .drop(columns=["index", "pin_10digit", "pin_suffix"])
     )
 
     print("# rows ready for upload: ", len(df_ready))
@@ -706,7 +730,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "FLAGS, TOTAL - EMPTY/INVALID",
         "Property Address",
         "Suggested PINs",
-        "Likely Assessable",
+        "Likely_Assessable",
     ]
 
     file_name_combined = os.path.join(
