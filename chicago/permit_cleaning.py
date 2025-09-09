@@ -469,13 +469,22 @@ def flag_fix_long_fields(df, chicago_pin_universe):
     )
     df[flag_columns] = df[flag_columns].replace({0: "", 1: "Yes"})
 
+    # Collapse multiple pins per address into a single comma-separated string
+    pin_map = (
+        chicago_pin_universe.groupby("prop_address_full")["pin"]
+        .apply(lambda pins: ",".join(pins.astype(str).unique()))
+        .reset_index()
+    )
+
+    # Merge using the collapsed mapping
     df = df.merge(
-        chicago_pin_universe[["pin", "prop_address_full"]],
+        pin_map,
         left_on="Applicant Street Address* [ADDR1]",
         right_on="prop_address_full",
         how="left",
     )
 
+    # Insert Property Address column right after the Applicant Street Address column
     df.insert(
         df.columns.get_loc("Applicant Street Address* [ADDR1]") + 1,
         "Property Address",
@@ -498,12 +507,24 @@ def flag_fix_long_fields(df, chicago_pin_universe):
         )
     )
 
-    # Add hyperlink for the Suggested PINs
-    def make_pin_hyperlink(pin):
-        if pd.isna(pin) or str(pin).strip().upper() == "NO PIN FOUND":
+    # Add hyperlink for the Suggested PINs (supporting multiple)
+    def make_pin_hyperlink(pin_str):
+        if pd.isna(pin_str) or str(pin_str).strip().upper() == "NO PIN FOUND":
             return "NO PIN FOUND"
-        pin_str = f"{pin[0:2]}-{pin[2:4]}-{pin[4:7]}-{pin[7:10]}-{pin[10:14]}"
-        return f'=HYPERLINK("https://www.cookcountyassessoril.gov/pin/{pin}", "{pin_str}")'
+
+        pins = str(pin_str).split(",")
+        links = []
+        for pin in pins:
+            pin = pin.strip()
+            if not pin:
+                continue
+            formatted = (
+                f"{pin[0:2]}-{pin[2:4]}-{pin[4:7]}-{pin[7:10]}-{pin[10:14]}"
+            )
+            links.append(
+                f'=HYPERLINK("https://www.cookcountyassessoril.gov/pin/{pin}", "{formatted}")'
+            )
+        return ", ".join(links)
 
     df["Suggested PINs"] = df["Suggested PINs"].apply(make_pin_hyperlink)
 
