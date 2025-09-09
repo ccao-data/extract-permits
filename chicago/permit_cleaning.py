@@ -428,22 +428,6 @@ def flag_fix_long_fields(df, chicago_pin_universe):
         if "flag" in str(c).lower() and "pin" not in str(c).lower()
     ]
 
-    # 2) Normalize to numeric 0/1 (non-numeric/NaN -> 0)
-    if pin_flag_cols:
-        df[pin_flag_cols] = (
-            df[pin_flag_cols]
-            .apply(pd.to_numeric, errors="coerce")
-            .fillna(0)
-            .astype(int)
-        )
-    if other_flag_cols:
-        df[other_flag_cols] = (
-            df[other_flag_cols]
-            .apply(pd.to_numeric, errors="coerce")
-            .fillna(0)
-            .astype(int)
-        )
-
     # 3) Totals
     df["FLAGS, TOTAL - PIN"] = (
         df[pin_flag_cols].sum(axis=1) if pin_flag_cols else 0
@@ -451,14 +435,6 @@ def flag_fix_long_fields(df, chicago_pin_universe):
     df["FLAGS, TOTAL - OTHER"] = (
         df[other_flag_cols].sum(axis=1) if other_flag_cols else 0
     )
-
-    # 4) Split:
-    #    - pin_error: any PIN flag == 1
-    #    - other: no PIN flags, but at least one OTHER flag
-    df_pin_error = df[df["FLAGS, TOTAL - PIN"] > 0].copy()
-    df_other = df[
-        (df["FLAGS, TOTAL - PIN"] == 0) & (df["FLAGS, TOTAL - OTHER"] > 0)
-    ].copy()
 
     # for ease of analysts viewing, edits flag columns to read "Yes" when row is flagged and blank otherwise (easier than columns of 0s and 1s)
     flag_columns = (
@@ -669,7 +645,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "# rows flagged for pin error: ",
         len(df_review_pin_error),
     )
-    print("# rows flagged for other errors: ", len(df_other))
 
     # create new folders with today's date to save xlsx files in (1 each for ready, needing manual shortening of fields, have missing fields or invalid PIN)
     folder_for_files_ready = (
