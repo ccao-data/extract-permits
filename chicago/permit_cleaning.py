@@ -280,66 +280,38 @@ def organize_columns(df):
 
 
 # flag invalid PINs for review by analysts
-def flag_invalid_pins(df, valid_pins):
+def flag_invalid_pins(df, chicago_pin_universe):
     df["FLAG COMMENTS"] = ""
 
-    # invalid 14-digit PIN flag
+    # invalid 14-digit PIN flag (int 0/1)
     df["FLAG, INVALID: PIN* [PARID]"] = np.where(
         df["PIN* [PARID]"] == "",
         0,
-        ~df["PIN* [PARID]"].isin(valid_pins["pin"]),
-    )
+        (~df["PIN* [PARID]"].isin(chicago_pin_universe["pin"])).astype(int),
+    ).astype(int)
 
-    # also check if 10-digit PINs are valid to narrow down on problematic portion of invalid PINs
+    # 10-digit validity (int 0/1)
     df["pin_10digit"] = df["PIN* [PARID]"].astype("string").str[:10]
     df["FLAG, INVALID: pin_10digit"] = np.where(
         df["pin_10digit"] == "",
         0,
-        ~df["pin_10digit"].isin(valid_pins["pin10"]),
-    )
+        (~df["pin_10digit"].isin(chicago_pin_universe["pin10"])).astype(int),
+    ).astype(int)
 
-    # create variable that is the numbers following the 10-digit PIN
-    # (not pulling last 4 digits from the end in case there are PINs that are not 14-digits in Chicago permit data)
+    # suffix after first 10
     df["pin_suffix"] = df["PIN* [PARID]"].astype("string").str[10:]
 
-    # comment for rows with invalid pin
+    # comments only when flag == 1
     df["FLAG COMMENTS"] += df["FLAG, INVALID: PIN* [PARID]"].apply(
-        lambda val: ""
-        if val == 0
-        else "PIN* [PARID] is invalid, see Original PIN for raw form; "
+        lambda v: "PIN* [PARID] is invalid, see Original PIN for raw form; "
+        if v == 1
+        else ""
     )
     df["FLAG COMMENTS"] += df["FLAG, INVALID: pin_10digit"].apply(
-        lambda val: "" if val == 0 else "10-digit PIN is invalid; "
+        lambda v: "10-digit PIN is invalid; " if v == 1 else ""
     )
 
-    return df
-
-
-def flag_fix_long_fields(df, chicago_pin_universe):
-    # will use these abbreviations to shorten applicant name field (Applicant* [USER21]) within 50 character field limit
-    name_shortening_dict = {
-        "ASSOCIATION": "ASSN",
-        "COMPANY": "CO",
-        "BUILDING": "BLDG",
-        "FOUNDATION": "FNDN",
-        "ILLINOIS": "IL",
-        "STREET": "ST",
-        "BOULEVARD": "BLVD",
-        "AVENUE": "AVE",
-        "APARTMENT": "APT",
-        "APARTMENTS": "APTS",
-        "MANAGEMENT": "MGMT",
-        "CORPORATION": "CORP",
-        "INCORPORATED": "INC",
-        "LIMITED": "LTD",
-        "PLAZA": "PLZ",
-    }
-
-    df["Applicant* [USER21]"] = df["Applicant* [USER21]"].replace(
-        name_shortening_dict, regex=True
-    )
-
-    # these fields have the following character limits in Smartfile / iasWorld, flag if over limit
+    # length-limit flags
     long_fields_to_flag = [
         (
             "FLAG, LENGTH: Applicant Name",
@@ -366,31 +338,32 @@ def flag_fix_long_fields(df, chicago_pin_universe):
             "Notes [NOTE1] over 2000 char limit by ",
         ),
     ]
-
     for flag_name, column, limit, comment in long_fields_to_flag:
-        df[flag_name] = df[column].apply(
-            lambda val: 0
-            if pd.isna(val)
-            else (1 if len(str(val)) > limit else 0)
+        df[flag_name] = (
+            df[column]
+            .apply(
+                lambda val: 0
+                if pd.isna(val)
+                else (1 if len(str(val)) > limit else 0)
+            )
+            .astype(int)
         )
         df["FLAG COMMENTS"] += df[column].apply(
             lambda val: ""
-            if pd.isna(val)
-            else (
-                ""
-                if len(str(val)) <= limit
-                else comment + str(len(str(val)) - limit) + "; "
-            )
+            if pd.isna(val) or len(str(val)) <= limit
+            else comment + str(len(str(val)) - limit) + "; "
         )
 
-    # round Amount to closest dollar because smart file doesn't accept decimal amounts, then flag values above upper limit
+    # amount rounding + limit
     df["Amount* [AMOUNT]"] = (
         pd.to_numeric(df["Amount* [AMOUNT]"], errors="coerce")
         .round()
         .astype("Int64")
     )
-    df["FLAG, VALUE: Amount"] = df["Amount* [AMOUNT]"].apply(
-        lambda value: 0 if pd.isna(value) or value <= 2147483647 else 1
+    df["FLAG, VALUE: Amount"] = (
+        df["Amount* [AMOUNT]"]
+        .apply(lambda value: 0 if pd.isna(value) or value <= 2147483647 else 1)
+        .astype(int)
     )
     df["FLAG COMMENTS"] += df["Amount* [AMOUNT]"].apply(
         lambda value: ""
@@ -398,53 +371,61 @@ def flag_fix_long_fields(df, chicago_pin_universe):
         else "Amount* [AMOUNT] over value limit of 2147483647; "
     )
 
-    # also flag rows where fields are blank for manual review (for fields we're populating in smartfile template)
-    flag_pin_cols = [
-        col
-        for col in df.columns
-        if "flag" in str(col).lower() and "pin" in str(col).lower()
-    ]
+    # separate "empty" PIN flag (don't overwrite INVALID flags)
+    df["FLAG, EMPTY: PIN* [PARID]"] = (
+        df["PIN* [PARID]"]
+        .apply(lambda val: 1 if pd.isna(val) or str(val).strip() == "" else 0)
+        .astype(int)
+    )
+    df["FLAG COMMENTS"] += df["FLAG, EMPTY: PIN* [PARID]"].apply(
+        lambda v: "PIN* [PARID] is missing; " if v == 1 else ""
+    )
 
-    pin_fields = [(col, "PIN* [PARID]") for col in flag_pin_cols]
+    # ---- totals: only true flag columns, kept numeric ----
+    # Start with columns that begin with 'FLAG,' (exclude FLAG COMMENTS and anything else)
+    flag_cols = df.filter(regex=r"^FLAG,").columns.tolist()
+    pin_flag_cols = [c for c in flag_cols if "pin" in c.lower()]
+    other_flag_cols = [c for c in flag_cols if "pin" not in c.lower()]
 
-    for flag_name, column in pin_fields:
-        comment = column + " is missing; "
-        df[flag_name] = df[column].apply(
-            lambda val: 1 if pd.isna(val) or str(val).strip() == "" else 0
+    # Coerce to numeric before summing to prevent string concat errors
+    if pin_flag_cols:
+        df["FLAGS, TOTAL - PIN"] = (
+            df[pin_flag_cols]
+            .apply(pd.to_numeric, errors="coerce")
+            .fillna(0)
+            .sum(axis=1)
+            .astype(int)
         )
-        df["FLAG COMMENTS"] += df[flag_name].apply(
-            lambda val: "" if val == 0 else comment
+    else:
+        df["FLAGS, TOTAL - PIN"] = 0
+
+    if other_flag_cols:
+        df["FLAGS, TOTAL - OTHER"] = (
+            df[other_flag_cols]
+            .apply(pd.to_numeric, errors="coerce")
+            .fillna(0)
+            .sum(axis=1)
+            .astype(int)
         )
+    else:
+        df["FLAGS, TOTAL - OTHER"] = 0
 
-    # 1) Identify flag columns (case-insensitive)
-    pin_flag_cols = [
-        c
-        for c in df.columns
-        if "flag" in str(c).lower() and "pin" in str(c).lower()
-    ]
-    other_flag_cols = [
-        c
-        for c in df.columns
-        if "flag" in str(c).lower() and "pin" not in str(c).lower()
-    ]
-
-    # 3) Totals
-    df["FLAGS, TOTAL - PIN"] = (
-        df[pin_flag_cols].sum(axis=1) if pin_flag_cols else 0
-    )
-    df["FLAGS, TOTAL - OTHER"] = (
-        df[other_flag_cols].sum(axis=1) if other_flag_cols else 0
+    df["FLAGS, TOTAL - OTHER"] = df.apply(
+        lambda row: 0
+        if row["FLAGS, TOTAL - PIN"] > 0
+        else row["FLAGS, TOTAL - OTHER"],
+        axis=1,
     )
 
-    # for ease of analysts viewing, edits flag columns to read "Yes" when row is flagged and blank otherwise (easier than columns of 0s and 1s)
-    flag_columns = (
-        list(df.filter(like="FLAG, LENGTH").columns)
-        + list(df.filter(like="FLAG, VALUE").columns)
-        + list(df.filter(like="FLAG, EMPTY").columns)
-        + list(df.filter(like="FLAG, INVALID").columns)
-    )
-    df[flag_columns] = df[flag_columns].replace({0: "", 1: "Yes"})
+    # presentation: map 0/1 → ""/"Yes" AFTER totals are computed
+    df[pin_flag_cols] = df[pin_flag_cols].replace({0: "", 1: "Yes"})
+    df[other_flag_cols] = df[other_flag_cols].replace({0: "", 1: "Yes"})
 
+    return df
+
+
+# join addresses and format columns
+def join_addresses_and_format_columns(df, chicago_pin_universe):
     # Collapse multiple pins per address into a single comma-separated string
     pin_map = (
         chicago_pin_universe.groupby("prop_address_full")["pin"]
@@ -609,8 +590,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
         (df["FLAGS, TOTAL - PIN"] == 0) & (df["FLAGS, TOTAL - OTHER"] == 0)
     ].reset_index()
     df_ready = df_ready.drop(
-        columns=df_ready.filter(like="FLAG").columns
-    ).drop(
         columns=[
             "index",
             "Original PIN",
@@ -645,6 +624,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "# rows flagged for pin error: ",
         len(df_review_pin_error),
     )
+    print("# rows flagged for other errors: ", len(df_other))
 
     # create new folders with today's date to save xlsx files in (1 each for ready, needing manual shortening of fields, have missing fields or invalid PIN)
     folder_for_files_ready = (
@@ -722,8 +702,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "FLAG, EMPTY: Applicant Street Address",
         "FLAG, EMPTY: Permit Number",
         "FLAG, EMPTY: Note1",
-        "FLAGS, TOTAL - LENGTH/VALUE",
-        "FLAGS, TOTAL - EMPTY/INVALID",
         "Property Address",
         "Suggested PINs",
         "Likely_Assessable",
@@ -818,7 +796,7 @@ if __name__ == "__main__":
         permits_renamed, chicago_pin_universe
     )
 
-    permits_shortened = flag_fix_long_fields(
+    permits_shortened = join_addresses_and_format_columns(
         permits_validated, chicago_pin_universe
     )
 
