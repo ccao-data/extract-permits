@@ -298,7 +298,8 @@ def flag_invalid_pins(df, chicago_pin_universe):
         (~df["pin_10digit"].isin(chicago_pin_universe["pin10"])).astype(int),
     ).astype(int)
 
-    # suffix after first 10
+    # create variable that is the numbers following the 10-digit PIN
+    # (not pulling last 4 digits from the end in case there are PINs that are not 14-digits in Chicago permit data)
     df["pin_suffix"] = df["PIN* [PARID]"].astype("string").str[10:]
 
     # comments only when flag == 1
@@ -310,6 +311,7 @@ def flag_invalid_pins(df, chicago_pin_universe):
     df["FLAG COMMENTS"] += df["FLAG, INVALID: pin_10digit"].apply(
         lambda v: "10-digit PIN is invalid; " if v == 1 else ""
     )
+    return df
 
 
 def flag_fix_long_fields(df):
@@ -379,7 +381,7 @@ def flag_fix_long_fields(df):
             )
         )
 
-# round Amount to closest dollar because smart file doesn't accept decimal amounts, then flag values above upper limit
+    # round Amount to closest dollar because smart file doesn't accept decimal amounts, then flag values above upper limit
     df["Amount* [AMOUNT]"] = (
         pd.to_numeric(df["Amount* [AMOUNT]"], errors="coerce")
         .round()
@@ -452,7 +454,8 @@ def flag_fix_long_fields(df):
         axis=1,
     )
 
-    # presentation: map 0/1 → ""/"Yes" AFTER totals are computed
+    # for ease of analysts viewing, edits flag columns to read "Yes" when row is flagged and
+    # blank otherwise (easier than columns of 0s and 1s)
     df[pin_flag_cols] = df[pin_flag_cols].replace({0: "", 1: "Yes"})
     df[other_flag_cols] = df[other_flag_cols].replace({0: "", 1: "Yes"})
 
@@ -674,8 +677,8 @@ def save_xlsx_files(df, max_rows, file_base_name):
         len(df_review_pin_error),
     )
     print("# rows flagged for other errors: ", len(df_other))
-# create new folders with today's date to save xlsx files in (1 each for ready, needing
-# manual shortening of fields, have missing fields or invalid PIN)
+    # create new folders with today's date to save xlsx files in (1 each for ready, needing
+    # manual shortening of fields, have missing fields or invalid PIN)
     folder_for_files_ready = (
         datetime.today().date().strftime("files_for_smartfile_%Y_%m_%d")
     )
