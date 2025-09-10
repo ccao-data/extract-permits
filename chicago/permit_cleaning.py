@@ -92,7 +92,7 @@ def get_pin_cache_filename(start_date: str, end_date: str) -> str:
     start_year = year_from_date_string(start_date)
     end_year = year_from_date_string(end_date)
 
-    return f"valid_pins-{start_year}-{end_year}.csv"
+    return f"chicago_pin_universe-{start_year}-{end_year}.csv"
 
 
 def pull_existing_pins_from_athena(
@@ -118,11 +118,11 @@ def pull_existing_pins_from_athena(
     AND u.year BETWEEN %(start_year)s AND %(end_year)s;
     """
     cursor.execute(SQL_QUERY, {"start_year": start_year, "end_year": end_year})
-    valid_pins = as_pandas(cursor)
+    chicago_pin_universe = as_pandas(cursor)
     pin_cache_filename = get_pin_cache_filename(start_date, end_date)
-    valid_pins.to_csv(pin_cache_filename, index=False)
+    chicago_pin_universe.to_csv(pin_cache_filename, index=False)
 
-    return valid_pins
+    return chicago_pin_universe
 
 
 def download_permits(start_date: str, end_date: str) -> pd.DataFrame:
@@ -280,14 +280,14 @@ def organize_columns(df):
 
 
 # flag invalid PINs for review by analysts
-def flag_invalid_pins(df, valid_pins):
+def flag_invalid_pins(df, chicago_pin_universe):
     df["FLAG COMMENTS"] = ""
 
     # invalid 14-digit PIN flag
     df["FLAG, INVALID: PIN* [PARID]"] = np.where(
         df["PIN* [PARID]"] == "",
         0,
-        (~df["PIN* [PARID]"].isin(valid_pins["pin"])).astype(int),
+        (~df["PIN* [PARID]"].isin(chicago_pin_universe["pin"])).astype(int),
     ).astype(int)
 
     # also check if 10-digit PINs are valid to narrow down on problematic portion of invalid PINs
@@ -295,7 +295,7 @@ def flag_invalid_pins(df, valid_pins):
     df["FLAG, INVALID: pin_10digit"] = np.where(
         df["pin_10digit"] == "",
         0,
-        (~df["pin_10digit"].isin(valid_pins["pin10"])).astype(int),
+        (~df["pin_10digit"].isin(chicago_pin_universe["pin10"])).astype(int),
     ).astype(int)
 
     # suffix after first 10
@@ -364,23 +364,22 @@ def flag_fix_long_fields(df):
         ),
     ]
     for flag_name, column, limit, comment in long_fields_to_flag:
-        df[flag_name] = (
-            df[column]
-            .apply(
-                lambda val: 0
-                if pd.isna(val)
-                else (1 if len(str(val)) > limit else 0)
-            )
-            .astype(int)
+        df[flag_name] = df[column].apply(
+            lambda val: 0
+            if pd.isna(val)
+            else (1 if len(str(val)) > limit else 0)
         )
         df["FLAG COMMENTS"] += df[column].apply(
             lambda val: ""
-            if pd.isna(val) or len(str(val)) <= limit
-            else comment + str(len(str(val)) - limit) + "; "
+            if pd.isna(val)
+            else (
+                ""
+                if len(str(val)) <= limit
+                else comment + str(len(str(val)) - limit) + "; "
+            )
         )
 
-    # round Amount to closest dollar because smart file doesn't accept decimal
-    # amounts, then flag values above upper limit
+# round Amount to closest dollar because smart file doesn't accept decimal amounts, then flag values above upper limit
     df["Amount* [AMOUNT]"] = (
         pd.to_numeric(df["Amount* [AMOUNT]"], errors="coerce")
         .round()
@@ -389,12 +388,12 @@ def flag_fix_long_fields(df):
     df["FLAG, VALUE: Amount"] = df["Amount* [AMOUNT]"].apply(
         lambda value: 0 if pd.isna(value) or value <= 2147483647 else 1
     )
-
     df["FLAG COMMENTS"] += df["Amount* [AMOUNT]"].apply(
         lambda value: ""
         if pd.isna(value) or value <= 2147483647
         else "Amount* [AMOUNT] over value limit of 2147483647; "
     )
+
     # also flag rows where fields are blank for manual review (for fields we're populating in smartfile template)
     empty_fields_to_flag = [
         ("FLAG, EMPTY: PIN", "PIN* [PARID]"),
@@ -461,10 +460,10 @@ def flag_fix_long_fields(df):
 
 
 # join addresses and format columns
-def join_addresses_and_format_columns(df, valid_pins):
+def join_addresses_and_format_columns(df, chicago_pin_universe):
     # Collapse multiple pins per address into a single comma-separated string
     pin_map = (
-        valid_pins.groupby(["prop_address_full"])["pin"]
+        chicago_pin_universe.groupby(["prop_address_full"])["pin"]
         .apply(lambda pins: ",".join(pins.astype(str).unique()))
         .reset_index()
     )
@@ -815,13 +814,13 @@ if __name__ == "__main__":
     pin_cache_filename = get_pin_cache_filename(start_date, end_date)
     if os.path.exists(pin_cache_filename):
         print(f"Loading Chicago PIN universe data from {pin_cache_filename}")
-        valid_pins = pd.read_csv(
+        chicago_pin_universe = pd.read_csv(
             pin_cache_filename,
             dtype={"pin": "string", "pin10": "string"},
         )
     else:
         print("Pulling PINs from Athena")
-        valid_pins = pull_existing_pins_from_athena(
+        chicago_pin_universe = pull_existing_pins_from_athena(
             cursor, start_date, end_date
         )
 
@@ -843,11 +842,11 @@ if __name__ == "__main__":
     permits_renamed = organize_columns(permits_expanded)
 
     permits_validated = flag_invalid_pins(
-        permits_renamed, valid_pins
+        permits_renamed, chicago_pin_universe
     )
 
     joined_permits = join_addresses_and_format_columns(
-        permits_validated, valid_pins
+        permits_validated, chicago_pin_universe
     )
 
     permits_shortened = flag_fix_long_fields(joined_permits)
