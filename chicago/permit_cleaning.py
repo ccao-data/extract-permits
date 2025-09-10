@@ -283,14 +283,14 @@ def organize_columns(df):
 def flag_invalid_pins(df, chicago_pin_universe):
     df["FLAG COMMENTS"] = ""
 
-    # invalid 14-digit PIN flag (int 0/1)
+    # invalid 14-digit PIN flag
     df["FLAG, INVALID: PIN* [PARID]"] = np.where(
         df["PIN* [PARID]"] == "",
         0,
         (~df["PIN* [PARID]"].isin(chicago_pin_universe["pin"])).astype(int),
     ).astype(int)
 
-    # 10-digit validity (int 0/1)
+    # 10-digit validity
     df["pin_10digit"] = df["PIN* [PARID]"].astype("string").str[:10]
     df["FLAG, INVALID: pin_10digit"] = np.where(
         df["pin_10digit"] == "",
@@ -311,7 +311,31 @@ def flag_invalid_pins(df, chicago_pin_universe):
         lambda v: "10-digit PIN is invalid; " if v == 1 else ""
     )
 
-    # length-limit flags
+def flag_fix_long_fields(df):
+    # will use these abbreviations to shorten applicant name field (Applicant* [USER21]) within 50 character field limit
+    name_shortening_dict = {
+        "ASSOCIATION": "ASSN",
+        "COMPANY": "CO",
+        "BUILDING": "BLDG",
+        "FOUNDATION": "FNDN",
+        "ILLINOIS": "IL",
+        "STREET": "ST",
+        "BOULEVARD": "BLVD",
+        "AVENUE": "AVE",
+        "APARTMENT": "APT",
+        "APARTMENTS": "APTS",
+        "MANAGEMENT": "MGMT",
+        "CORPORATION": "CORP",
+        "INCORPORATED": "INC",
+        "LIMITED": "LTD",
+        "PLAZA": "PLZ",
+    }
+
+    df["Applicant* [USER21]"] = df["Applicant* [USER21]"].replace(
+        name_shortening_dict, regex=True
+    )
+
+# these fields have the following character limits in Smartfile / iasWorld, flag if over limit
     long_fields_to_flag = [
         (
             "FLAG, LENGTH: Applicant Name",
@@ -354,17 +378,17 @@ def flag_invalid_pins(df, chicago_pin_universe):
             else comment + str(len(str(val)) - limit) + "; "
         )
 
-    # amount rounding + limit
+    # round Amount to closest dollar because smart file doesn't accept decimal
+amounts, then flag values above upper limit
     df["Amount* [AMOUNT]"] = (
         pd.to_numeric(df["Amount* [AMOUNT]"], errors="coerce")
         .round()
         .astype("Int64")
     )
-    df["FLAG, VALUE: Amount"] = (
-        df["Amount* [AMOUNT]"]
-        .apply(lambda value: 0 if pd.isna(value) or value <= 2147483647 else 1)
-        .astype(int)
+    df["FLAG, VALUE: Amount"] = df["Amount* [AMOUNT]"].apply(
+        lambda value: 0 if pd.isna(value) or value <= 2147483647 else 1
     )
+
     df["FLAG COMMENTS"] += df["Amount* [AMOUNT]"].apply(
         lambda value: ""
         if pd.isna(value) or value <= 2147483647
