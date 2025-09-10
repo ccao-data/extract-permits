@@ -290,7 +290,7 @@ def flag_invalid_pins(df, chicago_pin_universe):
         (~df["PIN* [PARID]"].isin(chicago_pin_universe["pin"])).astype(int),
     ).astype(int)
 
-    # 10-digit validity
+    # also check if 10-digit PINs are valid to narrow down on problematic portion of invalid PINs
     df["pin_10digit"] = df["PIN* [PARID]"].astype("string").str[:10]
     df["FLAG, INVALID: pin_10digit"] = np.where(
         df["pin_10digit"] == "",
@@ -310,6 +310,7 @@ def flag_invalid_pins(df, chicago_pin_universe):
     df["FLAG COMMENTS"] += df["FLAG, INVALID: pin_10digit"].apply(
         lambda v: "10-digit PIN is invalid; " if v == 1 else ""
     )
+
 
 def flag_fix_long_fields(df):
     # will use these abbreviations to shorten applicant name field (Applicant* [USER21]) within 50 character field limit
@@ -335,7 +336,7 @@ def flag_fix_long_fields(df):
         name_shortening_dict, regex=True
     )
 
-# these fields have the following character limits in Smartfile / iasWorld, flag if over limit
+    # these fields have the following character limits in Smartfile / iasWorld, flag if over limit
     long_fields_to_flag = [
         (
             "FLAG, LENGTH: Applicant Name",
@@ -379,7 +380,7 @@ def flag_fix_long_fields(df):
         )
 
     # round Amount to closest dollar because smart file doesn't accept decimal
-amounts, then flag values above upper limit
+    # amounts, then flag values above upper limit
     df["Amount* [AMOUNT]"] = (
         pd.to_numeric(df["Amount* [AMOUNT]"], errors="coerce")
         .round()
@@ -394,24 +395,35 @@ amounts, then flag values above upper limit
         if pd.isna(value) or value <= 2147483647
         else "Amount* [AMOUNT] over value limit of 2147483647; "
     )
+    # also flag rows where fields are blank for manual review (for fields we're populating in smartfile template)
+    empty_fields_to_flag = [
+        ("FLAG, EMPTY: PIN", "PIN* [PARID]"),
+        ("FLAG, EMPTY: Issue Date", "Issue Date* [PERMDT]"),
+        ("FLAG, EMPTY: Amount", "Amount* [AMOUNT]"),
+        ("FLAG, EMPTY: Applicant", "Applicant* [USER21]"),
+        (
+            "FLAG, EMPTY: Applicant Street Address",
+            "Applicant Street Address* [ADDR1]",
+        ),
+        ("FLAG, EMPTY: Permit Number", "Local Permit No.* [USER28]"),
+        ("FLAG, EMPTY: Note1", "Notes [NOTE1]"),
+    ]
 
-    # separate "empty" PIN flag (don't overwrite INVALID flags)
-    df["FLAG, EMPTY: PIN* [PARID]"] = (
-        df["PIN* [PARID]"]
-        .apply(lambda val: 1 if pd.isna(val) or str(val).strip() == "" else 0)
-        .astype(int)
-    )
-    df["FLAG COMMENTS"] += df["FLAG, EMPTY: PIN* [PARID]"].apply(
-        lambda v: "PIN* [PARID] is missing; " if v == 1 else ""
-    )
+    for flag_name, column in empty_fields_to_flag:
+        comment = column + " is missing; "
+        df[flag_name] = df[column].apply(
+            lambda val: 1 if pd.isna(val) or str(val).strip() == "" else 0
+        )
+        df["FLAG COMMENTS"] += df[flag_name].apply(
+            lambda val: "" if val == 0 else comment
+        )
 
     # ---- totals: only true flag columns, kept numeric ----
-    # Start with columns that begin with 'FLAG,' (exclude FLAG COMMENTS and anything else)
-    flag_cols = df.filter(regex=r"^FLAG,").columns.tolist()
+    flag_cols = df.filter(regex="^FLAG,").columns.tolist()
     pin_flag_cols = [c for c in flag_cols if "pin" in c.lower()]
     other_flag_cols = [c for c in flag_cols if "pin" not in c.lower()]
 
-    # Coerce to numeric before summing to prevent string concat errors
+    # Coerce to numeric before summing
     if pin_flag_cols:
         df["FLAGS, TOTAL - PIN"] = (
             df[pin_flag_cols]
@@ -663,7 +675,8 @@ def save_xlsx_files(df, max_rows, file_base_name):
         len(df_review_pin_error),
     )
     print("# rows flagged for other errors: ", len(df_other))
-
+# create new folders with today's date to save xlsx files in (1 each for ready, needing
+# manual shortening of fields, have missing fields or invalid PIN)
     folder_for_files_ready = (
         datetime.today().date().strftime("files_for_smartfile_%Y_%m_%d")
     )
@@ -833,9 +846,11 @@ if __name__ == "__main__":
         permits_renamed, chicago_pin_universe
     )
 
-    permits_shortened = join_addresses_and_format_columns(
+    joined_permits = join_addresses_and_format_columns(
         permits_validated, chicago_pin_universe
     )
+
+    permits_shortened = flag_fix_long_fields(joined_permits)
 
     if deduplicate:
         print(
