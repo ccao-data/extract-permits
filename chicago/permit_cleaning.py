@@ -287,16 +287,16 @@ def flag_invalid_pins(df, chicago_pin_universe):
     df["FLAG, INVALID: PIN* [PARID]"] = np.where(
         df["PIN* [PARID]"] == "",
         0,
-        (~df["PIN* [PARID]"].isin(chicago_pin_universe["pin"])).astype(int),
-    ).astype(int)
+        ~df["PIN* [PARID]"].isin(chicago_pin_universe["pin"]),
+    )
 
     # also check if 10-digit PINs are valid to narrow down on problematic portion of invalid PINs
     df["pin_10digit"] = df["PIN* [PARID]"].astype("string").str[:10]
     df["FLAG, INVALID: pin_10digit"] = np.where(
         df["pin_10digit"] == "",
         0,
-        (~df["pin_10digit"].isin(chicago_pin_universe["pin10"])).astype(int),
-    ).astype(int)
+        ~df["PIN* [PARID]"].isin(chicago_pin_universe["pin"]),
+    )
 
     # create variable that is the numbers following the 10-digit PIN
     # (not pulling last 4 digits from the end in case there are PINs that are not 14-digits in Chicago permit data)
@@ -304,12 +304,12 @@ def flag_invalid_pins(df, chicago_pin_universe):
 
     # comments only when flag == 1
     df["FLAG COMMENTS"] += df["FLAG, INVALID: PIN* [PARID]"].apply(
-        lambda v: "PIN* [PARID] is invalid, see Original PIN for raw form; "
-        if v == 1
+        lambda val: "PIN* [PARID] is invalid, see Original PIN for raw form; "
+        if val == 1
         else ""
     )
     df["FLAG COMMENTS"] += df["FLAG, INVALID: pin_10digit"].apply(
-        lambda v: "10-digit PIN is invalid; " if v == 1 else ""
+        lambda val: "10-digit PIN is invalid; " if val == 1 else ""
     )
     return df
 
@@ -419,31 +419,20 @@ def flag_fix_long_fields(df):
             lambda val: "" if val == 0 else comment
         )
 
-    # ---- totals: only true flag columns, kept numeric ----
+    # Create flags based on the pin errors and then those based on other errors.
+    # These are sorted into separate pages
     flag_cols = df.filter(regex="^FLAG,").columns.tolist()
     pin_flag_cols = [c for c in flag_cols if "pin" in c.lower()]
     other_flag_cols = [c for c in flag_cols if "pin" not in c.lower()]
 
-    # Coerce to numeric before summing
+    # Sum pin values to create the pin flags vs other flags
     if pin_flag_cols:
-        df["FLAGS, TOTAL - PIN"] = (
-            df[pin_flag_cols]
-            .apply(pd.to_numeric, errors="coerce")
-            .fillna(0)
-            .sum(axis=1)
-            .astype(int)
-        )
+        df["FLAGS, TOTAL - PIN"] = df[pin_flag_cols].sum(axis=1)
     else:
         df["FLAGS, TOTAL - PIN"] = 0
 
     if other_flag_cols:
-        df["FLAGS, TOTAL - OTHER"] = (
-            df[other_flag_cols]
-            .apply(pd.to_numeric, errors="coerce")
-            .fillna(0)
-            .sum(axis=1)
-            .astype(int)
-        )
+        df["FLAGS, TOTAL - OTHER"] = df[other_flag_cols].sum(axis=1)
     else:
         df["FLAGS, TOTAL - OTHER"] = 0
 
@@ -454,8 +443,7 @@ def flag_fix_long_fields(df):
         axis=1,
     )
 
-    # for ease of analysts viewing, edits flag columns to read "Yes" when row is flagged and
-    # blank otherwise (easier than columns of 0s and 1s)
+    # for ease of analysts viewing, edits flag columns to read "Yes" when row is flagged and blank otherwise (easier than columns of 0s and 1s)
     df[pin_flag_cols] = df[pin_flag_cols].replace({0: "", 1: "Yes"})
     df[other_flag_cols] = df[other_flag_cols].replace({0: "", 1: "Yes"})
 
@@ -474,8 +462,8 @@ def join_addresses_and_format_columns(df, chicago_pin_universe):
     # Merge using the collapsed mapping
     df = df.merge(
         pin_map,
-        left_on="Applicant Street Address* [ADDR1]",
-        right_on="prop_address_full",
+        left_on=["Applicant Street Address* [ADDR1]"],
+        right_on=["prop_address_full"],
         how="left",
     )
 
@@ -502,6 +490,10 @@ def join_addresses_and_format_columns(df, chicago_pin_universe):
         )
     )
 
+    # This uses three techniques to add a suggested PIN. If there is no PIN, it will say "NO PIN FOUND".
+    # If there is a single 14-digit PIN, it will be a hyperlink.
+    # If there are more than one PINs, it will be a comma-separated list of PINs. This is the result of
+    # joining based on PIN10 rather than PIN. This is necessary due to the structure of the input file.
     def make_pin_hyperlink(pin_str):
         if pd.isna(pin_str):
             return "NO PIN FOUND"
@@ -763,7 +755,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
         folder_for_files_review, file_base_name + "review.xlsx"
     )
 
-    # Copy template workbook first
+    # Copy template workbook
     template_file = "template/permits_template.xlsx"
     wb = openpyxl.load_workbook(template_file)
     wb.save(file_name_combined)
