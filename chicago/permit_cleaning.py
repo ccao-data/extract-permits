@@ -302,15 +302,16 @@ def flag_invalid_pins(df, chicago_pin_universe):
     # (not pulling last 4 digits from the end in case there are PINs that are not 14-digits in Chicago permit data)
     df["pin_suffix"] = df["PIN* [PARID]"].astype("string").str[10:]
 
-    # comments only when flag == 1
+    # comment for rows with invalid pin
     df["FLAG COMMENTS"] += df["FLAG, INVALID: PIN* [PARID]"].apply(
-        lambda val: "PIN* [PARID] is invalid, see Original PIN for raw form; "
-        if val == 1
-        else ""
+        lambda val: ""
+        if val == 0
+        else "PIN* [PARID] is invalid, see Original PIN for raw form; "
     )
     df["FLAG COMMENTS"] += df["FLAG, INVALID: pin_10digit"].apply(
-        lambda val: "10-digit PIN is invalid; " if val == 1 else ""
+        lambda val: "" if val == 0 else "10-digit PIN is invalid; "
     )
+
     return df
 
 
