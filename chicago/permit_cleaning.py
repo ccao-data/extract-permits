@@ -428,7 +428,7 @@ def flag_invalid_pins(df, chicago_pin_universe):
 def join_addresses_and_format_columns(df, chicago_pin_universe):
     # Collapse multiple pins per address into a single comma-separated string
     pin_map = (
-        chicago_pin_universe.groupby("prop_address_full")["pin"]
+        chicago_pin_universe.groupby(["prop_address_full"])["pin"]
         .apply(lambda pins: ",".join(pins.astype(str).unique()))
         .reset_index()
     )
@@ -464,27 +464,25 @@ def join_addresses_and_format_columns(df, chicago_pin_universe):
         )
     )
 
-    # Add hyperlink for the Suggested PINs (supporting multiple)
     def make_pin_hyperlink(pin_str):
-        if pd.isna(pin_str) or str(pin_str).strip().upper() == "NO PIN FOUND":
+        if pd.isna(pin_str):
             return "NO PIN FOUND"
 
-        pins = str(pin_str).split(",")
-        links = []
-        for pin in pins:
-            pin = pin.strip()
-            if not pin:
-                continue
-            formatted = (
-                f"{pin[0:2]}-{pin[2:4]}-{pin[4:7]}-{pin[7:10]}-{pin[10:14]}"
-            )
-            links.append(
-                f'=HYPERLINK("https://www.cookcountyassessoril.gov/pin/{pin}", "{formatted}")'
-            )
-        return ", ".join(links)
+        raw = str(pin_str).strip()
+        if raw.upper() == "NO PIN FOUND" or raw == "":
+            return "NO PIN FOUND"
 
+        digits = re.sub(r"\D", "", raw)
+        if len(digits) == 14:
+            return f'=HYPERLINK("https://www.cookcountyassessoril.gov/pin/{digits}", "{raw}")'
+
+        # This will be a list of comma separated pins
+        return raw
+
+    # Apply
     df["Suggested PINs"] = df["Suggested PINs"].apply(make_pin_hyperlink)
 
+    # List of keywords to identify likely assessable permits
     keywords = [
         "remodel",
         "demolition",
@@ -492,6 +490,17 @@ def join_addresses_and_format_columns(df, chicago_pin_universe):
         "solar",
         "roof",
         "foundation",
+        "addition",
+        "garage",
+        "deck",
+        "pool",
+        "basement",
+        "kitchen",
+        "bathroom",
+        "siding",
+        "HVAC",
+        "plumbing",
+        "electrical",
     ]
 
     df = df.assign(
@@ -590,11 +599,16 @@ def save_xlsx_files(df, max_rows, file_base_name):
         (df["FLAGS, TOTAL - PIN"] == 0) & (df["FLAGS, TOTAL - OTHER"] == 0)
     ].reset_index()
     df_ready = df_ready.drop(
+        columns=df_ready.filter(like="FLAG").columns
+    ).drop(
         columns=[
             "index",
             "Original PIN",
             "pin_10digit",
             "pin_suffix",
+            "Property Address",
+            "Suggested PINs",
+            "Likely_Assessable",
         ]
     )
 
@@ -626,7 +640,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
     )
     print("# rows flagged for other errors: ", len(df_other))
 
-    # create new folders with today's date to save xlsx files in (1 each for ready, needing manual shortening of fields, have missing fields or invalid PIN)
     folder_for_files_ready = (
         datetime.today().date().strftime("files_for_smartfile_%Y_%m_%d")
     )
