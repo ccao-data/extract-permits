@@ -295,7 +295,7 @@ def flag_invalid_pins(df, chicago_pin_universe):
     df["FLAG, INVALID: pin_10digit"] = np.where(
         df["pin_10digit"] == "",
         0,
-        ~df["PIN* [PARID]"].isin(chicago_pin_universe["pin"]),
+        ~df["pin_10digit"].isin(chicago_pin_universe["pin10"]),
     )
 
     # create variable that is the numbers following the 10-digit PIN
