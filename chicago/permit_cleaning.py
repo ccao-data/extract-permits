@@ -113,7 +113,7 @@ def pull_existing_pins_from_athena(
     FROM default.vw_pin_universe u
     LEFT JOIN default.vw_pin_address a
         ON u.pin = a.pin
-    AND u.year = a.year
+        AND u.year = a.year
     WHERE u.triad_name = 'City'
     AND u.year BETWEEN %(start_year)s AND %(end_year)s;
     """
