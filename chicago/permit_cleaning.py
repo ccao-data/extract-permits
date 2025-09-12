@@ -8,6 +8,8 @@ also splits off data that is ready for upload from data that still needs some ma
 in separate Excel workbooks in separate folders. Data that need review are split into two categories and corresponding folders/files:
 those with quick fixes for fields over character or amount limits, and those with more complicated fixes for missing and/or invalid fields.
 
+Output data will be distinct by PIN and address. In the case where a PIN changes it's address, it may appear twice.
+
 The following optional environment variables can be set:
     AWS_ATHENA_S3_STAGING_DIR: S3 path where Athena query results are stored
     AWS_REGION: Region that AWS operations should be run in
