@@ -8,7 +8,7 @@ also splits off data that is ready for upload from data that still needs some ma
 in separate Excel workbooks in separate folders. Data that need review are split into two categories and corresponding folders/files:
 those with quick fixes for fields over character or amount limits, and those with more complicated fixes for missing and/or invalid fields.
 
-Output data will be distinct by PIN and address. In the case where a PIN changes it's address, it may appear twice.
+Output data will be distinct by PIN and address. In the case where a PIN changes its address, it may appear twice.
 
 The following optional environment variables can be set:
     AWS_ATHENA_S3_STAGING_DIR: S3 path where Athena query results are stored
@@ -489,7 +489,7 @@ def add_address_link_and_suggested_pins(df, chicago_pin_universe):
 
     # This uses three techniques to add a suggested PIN. If there is no PIN, it will say "NO PIN FOUND".
     # If there is a single 14-digit PIN, it will be a hyperlink.
-    # If there are more than one PINs, it will be a comma-separated list of PINs. This is both the
+    # If there are more than one PINs, it will be a comma-separated list of PINs. This is both the 
     # result of joining based on pin10 and the fact that multiple pins may have the same address.
     def make_pin_hyperlink(pin_str):
         if pd.isna(pin_str):
