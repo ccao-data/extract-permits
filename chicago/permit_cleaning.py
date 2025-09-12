@@ -366,6 +366,7 @@ def flag_fix_long_fields(df):
             "Notes [NOTE1] over 2000 char limit by ",
         ),
     ]
+
     for flag_name, column, limit, comment in long_fields_to_flag:
         df[flag_name] = df[column].apply(
             lambda val: 0
@@ -499,16 +500,12 @@ def join_addresses_and_format_columns(df, chicago_pin_universe):
         if pd.isna(pin_str):
             return "NO PIN FOUND"
 
-        raw = str(pin_str).strip()
-        if raw.upper() == "NO PIN FOUND" or raw == "":
-            return "NO PIN FOUND"
-
-        digits = re.sub(r"\D", "", raw)
+        digits = re.sub(r"\D", "", pin_str)
         if len(digits) == 14:
-            return f'=HYPERLINK("https://www.cookcountyassessoril.gov/pin/{digits}", "{raw}")'
+            return f'=HYPERLINK("https://www.cookcountyassessoril.gov/pin/{digits}", "{pin_str}")'
 
         # This will be a list of comma separated pins
-        return raw
+        return pin_str
 
     # Apply
     df["Suggested PINs"] = df["Suggested PINs"].apply(make_pin_hyperlink)
