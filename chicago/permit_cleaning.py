@@ -487,8 +487,8 @@ def add_address_link_and_suggested_pins(df, chicago_pin_universe):
 
     # This uses three techniques to add a suggested PIN. If there is no PIN, it will say "NO PIN FOUND".
     # If there is a single 14-digit PIN, it will be a hyperlink.
-    # If there are more than one PINs, it will be a comma-separated list of PINs. This is the result of
-    # joining based on PIN10 rather than PIN. This is necessary due to the structure of the input file.
+    # If there are more than one PINs, it will be a comma-separated list of PINs. This is both the 
+    # result of joining based on pin10 and the fact that multiple pins may have the same address.
     def make_pin_hyperlink(pin_str):
         if pd.isna(pin_str):
             return "NO PIN FOUND"
