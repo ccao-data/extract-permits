@@ -438,13 +438,6 @@ def flag_fix_long_fields(df):
     else:
         df["FLAGS, TOTAL - OTHER"] = 0
 
-    df["FLAGS, TOTAL - OTHER"] = df.apply(
-        lambda row: 0
-        if row["FLAGS, TOTAL - PIN"] > 0
-        else row["FLAGS, TOTAL - OTHER"],
-        axis=1,
-    )
-
     # for ease of analysts viewing, edits flag columns to read "Yes" when row is flagged and blank otherwise (easier than columns of 0s and 1s)
     df[pin_flag_cols] = df[pin_flag_cols].replace({0: "", 1: "Yes"})
     df[other_flag_cols] = df[other_flag_cols].replace({0: "", 1: "Yes"})
@@ -640,7 +633,9 @@ def save_xlsx_files(df, max_rows, file_base_name):
         ]
     )
 
-    df_other = df[df["FLAGS, TOTAL - OTHER"] > 0].reset_index()
+    df_other = df[
+        (df["FLAGS, TOTAL - OTHER"] > 0) & (df["FLAGS, TOTAL - PIN"] == 0)
+    ].reset_index()
     df_other = (
         df_other.drop(columns=df_other.filter(like="FLAG, PIN"))
         .drop(columns=df_other.filter(like="FLAG, OTHER"))
@@ -754,7 +749,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
     )
 
     # Copy template workbook
-    template_file = "template/permits_template.xlsx"
+    template_file = "chicago/templates/permits_needing_review.xlsx"
     wb = openpyxl.load_workbook(template_file)
     wb.save(file_name_combined)
 
