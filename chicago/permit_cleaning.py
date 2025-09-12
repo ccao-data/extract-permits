@@ -453,7 +453,7 @@ def flag_fix_long_fields(df):
 
 
 # join addresses and format columns
-def join_addresses_and_format_columns(df, chicago_pin_universe):
+def add_address_link_and_suggested_pins(df, chicago_pin_universe):
     # Collapse multiple pins per address into a single comma-separated string
     pin_map = (
         chicago_pin_universe.groupby(["prop_address_full"])["pin"]
@@ -838,7 +838,7 @@ if __name__ == "__main__":
         permits_renamed, chicago_pin_universe
     )
 
-    joined_permits = join_addresses_and_format_columns(
+    joined_permits = add_address_link_and_suggested_pins(
         permits_validated, chicago_pin_universe
     )
 
