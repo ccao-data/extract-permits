@@ -505,7 +505,9 @@ def add_address_link_and_suggested_pins(df, chicago_pin_universe):
     # Apply
     df["Suggested PINs"] = df["Suggested PINs"].apply(make_pin_hyperlink)
 
-    # List of keywords to identify likely assessable permits
+    # List of keywords to identify likely assessable permits.
+    # This heuristic is a draft and will not be put into production until
+	# reviewed by permit specialists.
     keywords = [
         "remodel",
         "demolition",
