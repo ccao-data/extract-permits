@@ -452,7 +452,7 @@ def add_address_link_and_suggested_pins(df, chicago_pin_universe):
     # Collapse multiple pins per address into a single comma-separated string
     pin_map = (
         chicago_pin_universe.groupby(["prop_address_full"])["pin"]
-        .apply(lambda pins: ",".join(pins.astype(str).unique()))
+        .apply(lambda pins: ", ".join(pins.astype(str).unique()))
         .reset_index()
     )
 
