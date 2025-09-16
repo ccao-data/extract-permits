@@ -8,8 +8,6 @@ also splits off data that is ready for upload from data that still needs some ma
 in separate Excel workbooks in separate folders. Data that need review are split into two categories and corresponding folders/files:
 those with quick fixes for fields over character or amount limits, and those with more complicated fixes for missing and/or invalid fields.
 
-Output data will be distinct by PIN and address. In the case where a PIN changes its address, it may appear twice.
-
 The following optional environment variables can be set:
     AWS_ATHENA_S3_STAGING_DIR: S3 path where Athena query results are stored
     AWS_REGION: Region that AWS operations should be run in
@@ -97,6 +95,7 @@ def get_pin_cache_filename(start_date: str, end_date: str) -> str:
     return f"chicago_pin_universe-{start_year}-{end_year}.csv"
 
 
+# Output data will be distinct by PIN and address. In the case where a PIN changes its address or has multiple addresses, it will appear twice.
 def pull_existing_pins_from_athena(
     cursor: Cursor, start_date: str, end_date: str
 ) -> pd.DataFrame:
@@ -507,7 +506,7 @@ def add_address_link_and_suggested_pins(df, chicago_pin_universe):
 
     # List of keywords to identify likely assessable permits.
     # This heuristic is a draft and will not be put into production until
-	# reviewed by permit specialists.
+    # reviewed by permit specialists.
     keywords = [
         "remodel",
         "demolition",
