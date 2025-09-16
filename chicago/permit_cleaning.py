@@ -24,10 +24,12 @@ The following will also need to be updated:
 import decimal
 import math
 import os
+import re
 import sys
 from datetime import datetime
 
 import numpy as np
+import openpyxl
 import pandas as pd
 import requests
 from pyathena import connect
@@ -93,6 +95,7 @@ def get_pin_cache_filename(start_date: str, end_date: str) -> str:
     return f"chicago_pin_universe-{start_year}-{end_year}.csv"
 
 
+# Output data will be distinct by PIN and address. In the case where a PIN changes its address or has multiple addresses, it will appear twice.
 def pull_existing_pins_from_athena(
     cursor: Cursor, start_date: str, end_date: str
 ) -> pd.DataFrame:
@@ -104,12 +107,16 @@ def pull_existing_pins_from_athena(
     end_year = year_from_date_string(end_date)
 
     SQL_QUERY = """
-        SELECT DISTINCT
-            CAST(pin AS varchar) AS pin,
-            CAST(pin10 AS varchar) AS pin10
-        FROM default.vw_pin_universe
-        WHERE triad_name = 'City'
-            AND year BETWEEN %(start_year)s AND %(end_year)s
+    SELECT DISTINCT
+        CAST(u.pin AS varchar) AS pin,
+        CAST(u.pin10 AS varchar) AS pin10,
+        a.prop_address_full
+    FROM default.vw_pin_universe u
+    LEFT JOIN default.vw_pin_address a
+        ON u.pin = a.pin
+        AND u.year = a.year
+    WHERE u.triad_name = 'City'
+    AND u.year BETWEEN %(start_year)s AND %(end_year)s;
     """
     cursor.execute(SQL_QUERY, {"start_year": start_year, "end_year": end_year})
     chicago_pin_universe = as_pandas(cursor)
@@ -274,14 +281,14 @@ def organize_columns(df):
 
 
 # flag invalid PINs for review by analysts
-def flag_invalid_pins(df, valid_pins):
+def flag_invalid_pins(df, chicago_pin_universe):
     df["FLAG COMMENTS"] = ""
 
     # invalid 14-digit PIN flag
     df["FLAG, INVALID: PIN* [PARID]"] = np.where(
         df["PIN* [PARID]"] == "",
         0,
-        ~df["PIN* [PARID]"].isin(valid_pins["pin"]),
+        ~df["PIN* [PARID]"].isin(chicago_pin_universe["pin"]),
     )
 
     # also check if 10-digit PINs are valid to narrow down on problematic portion of invalid PINs
@@ -289,7 +296,7 @@ def flag_invalid_pins(df, valid_pins):
     df["FLAG, INVALID: pin_10digit"] = np.where(
         df["pin_10digit"] == "",
         0,
-        ~df["pin_10digit"].isin(valid_pins["pin10"]),
+        ~df["pin_10digit"].isin(chicago_pin_universe["pin10"]),
     )
 
     # create variable that is the numbers following the 10-digit PIN
@@ -415,31 +422,123 @@ def flag_fix_long_fields(df):
             lambda val: "" if val == 0 else comment
         )
 
-    # create columns for total number of flags for length and for missingness since they'll get sorted into separate excel files
-    df["FLAGS, TOTAL - LENGTH/VALUE"] = df.filter(
-        like="FLAG, LENGTH"
-    ).values.sum(axis=1) + df.filter(like="FLAG, VALUE").values.sum(axis=1)
-    df["FLAGS, TOTAL - EMPTY/INVALID"] = df.filter(
-        like="FLAG, EMPTY"
-    ).values.sum(axis=1) + df.filter(like="FLAG, INVALID").values.sum(axis=1)
+    # Create flags based on the pin errors and then those based on other errors.
+    # These are sorted into separate pages
+    flag_cols = df.filter(regex="^FLAG,").columns.tolist()
+    pin_flag_cols = [c for c in flag_cols if "pin" in c.lower()]
+    other_flag_cols = [c for c in flag_cols if "pin" not in c.lower()]
 
-    # need a column that identifies rows with flags for field length/amount but no flags for emptiness/invalidness
-    # since these two categories will get split into separate excel workbooks
-    df["MANUAL REVIEW"] = np.where(
-        (df["FLAGS, TOTAL - EMPTY/INVALID"] == 0)
-        & (df["FLAGS, TOTAL - LENGTH/VALUE"] > 0),
-        1,
-        0,
-    )
+    # Sum pin values to create the pin flags vs other flags
+    if pin_flag_cols:
+        df["FLAGS, TOTAL - PIN"] = df[pin_flag_cols].sum(axis=1)
+    else:
+        df["FLAGS, TOTAL - PIN"] = 0
+
+    if other_flag_cols:
+        df["FLAGS, TOTAL - OTHER"] = df[other_flag_cols].sum(axis=1)
+    else:
+        df["FLAGS, TOTAL - OTHER"] = 0
 
     # for ease of analysts viewing, edits flag columns to read "Yes" when row is flagged and blank otherwise (easier than columns of 0s and 1s)
-    flag_columns = (
-        list(df.filter(like="FLAG, LENGTH").columns)
-        + list(df.filter(like="FLAG, VALUE").columns)
-        + list(df.filter(like="FLAG, EMPTY").columns)
-        + list(df.filter(like="FLAG, INVALID").columns)
+    df[pin_flag_cols] = df[pin_flag_cols].replace({0: "", 1: "Yes"})
+    df[other_flag_cols] = df[other_flag_cols].replace({0: "", 1: "Yes"})
+
+    return df
+
+
+# join addresses and format columns
+def add_address_link_and_suggested_pins(df, chicago_pin_universe):
+    # Collapse multiple pins per address into a single comma-separated string
+    pin_map = (
+        chicago_pin_universe.groupby(["prop_address_full"])["pin"]
+        .apply(lambda pins: ", ".join(pins.astype(str).unique()))
+        .reset_index()
     )
-    df[flag_columns] = df[flag_columns].replace({0: "", 1: "Yes"})
+
+    # Merge using the collapsed mapping
+    df = df.merge(
+        pin_map,
+        left_on=["Applicant Street Address* [ADDR1]"],
+        right_on=["prop_address_full"],
+        how="left",
+    )
+
+    # Insert Property Address column right after the Applicant Street Address column
+    df.insert(
+        df.columns.get_loc("Applicant Street Address* [ADDR1]") + 1,
+        "Property Address",
+        df["Applicant Street Address* [ADDR1]"],
+    )
+
+    # Suggested PINs (replace NA with NO PIN FOUND)
+    df = df.rename(columns={"pin": "Suggested PINs"})
+    df["Suggested PINs"] = df["Suggested PINs"].fillna("NO PIN FOUND")
+
+    # Drop the prop_address_full column (no longer needed)
+    df = df.drop(columns=["prop_address_full"])
+
+    # Add hyperlink for the Property Address
+    df["Property Address"] = df["Property Address"].apply(
+        lambda addr: (
+            f'=HYPERLINK("https://maps.cookcountyil.gov/cookviewer/?search={addr}", "{addr}")'
+            if pd.notna(addr)
+            else ""
+        )
+    )
+
+    # This uses three techniques to add a suggested PIN. If there is no PIN, it will say "NO PIN FOUND".
+    # If there is a single 14-digit PIN, it will be a hyperlink.
+    # If there are more than one PINs, it will be a comma-separated list of PINs. This is both the
+    # result of joining based on pin10 and the fact that multiple pins may have the same address.
+    def make_pin_hyperlink(pin_str):
+        if pd.isna(pin_str):
+            return "NO PIN FOUND"
+
+        digits = re.sub(r"\D", "", pin_str)
+        if len(digits) == 14:
+            return f'=HYPERLINK("https://www.cookcountyassessoril.gov/pin/{digits}", "{pin_str}")'
+
+        # This will be a list of comma separated pins
+        return pin_str
+
+    # Apply
+    df["Suggested PINs"] = df["Suggested PINs"].apply(make_pin_hyperlink)
+
+    # List of keywords to identify likely assessable permits.
+    # This heuristic is a draft and will not be put into production until
+    # reviewed by permit specialists.
+    keywords = [
+        "remodel",
+        "demolition",
+        "construction",
+        "solar",
+        "roof",
+        "foundation",
+        "addition",
+        "garage",
+        "deck",
+        "pool",
+        "basement",
+        "kitchen",
+        "bathroom",
+        "siding",
+        "HVAC",
+        "plumbing",
+        "electrical",
+    ]
+
+    df = df.assign(
+        Likely_Assessable=lambda x: x["Notes [NOTE1]"].apply(
+            lambda note: (
+                "Yes"
+                if any(
+                    kw in re.sub(r"[^a-z\s]", "", str(note).lower())
+                    for kw in keywords
+                )
+                else "No"
+            )
+        )
+    )
 
     return df
 
@@ -521,8 +620,7 @@ def gen_file_base_name():
 def save_xlsx_files(df, max_rows, file_base_name):
     # separate rows that are ready for upload from ones that need manual review or have missing or invalid PINs
     df_ready = df[
-        (df["FLAGS, TOTAL - LENGTH/VALUE"] == 0)
-        & (df["FLAGS, TOTAL - EMPTY/INVALID"] == 0)
+        (df["FLAGS, TOTAL - PIN"] == 0) & (df["FLAGS, TOTAL - OTHER"] == 0)
     ].reset_index()
     df_ready = df_ready.drop(
         columns=df_ready.filter(like="FLAG").columns
@@ -530,63 +628,56 @@ def save_xlsx_files(df, max_rows, file_base_name):
         columns=[
             "index",
             "Original PIN",
-            "MANUAL REVIEW",
             "pin_10digit",
             "pin_suffix",
+            "Property Address",
+            "Suggested PINs",
+            "Likely_Assessable",
         ]
     )
 
-    df_review_length = df[df["MANUAL REVIEW"] == 1].reset_index()
-    df_review_length = (
-        df_review_length.drop(
-            columns=df_review_length.filter(like="FLAG, EMPTY")
-        )
-        .drop(columns=df_review_length.filter(like="FLAG, INVALID"))
+    df_other = df[
+        (df["FLAGS, TOTAL - OTHER"] > 0) & (df["FLAGS, TOTAL - PIN"] == 0)
+    ].reset_index()
+    df_other = (
+        df_other.drop(columns=df_other.filter(like="FLAG, PIN"))
+        .drop(columns=df_other.filter(like="FLAG, OTHER"))
         .drop(
             columns=[
                 "Original PIN",
-                "FLAGS, TOTAL - EMPTY/INVALID",
+                "FLAGS, TOTAL - OTHER",
                 "index",
-                "MANUAL REVIEW",
                 "pin_10digit",
                 "pin_suffix",
             ]
         )
     )
 
-    df_review_empty_invalid = (
-        df[df["FLAGS, TOTAL - EMPTY/INVALID"] > 0]
+    df_review_pin_error = (
+        df[df["FLAGS, TOTAL - PIN"] > 0]
         .reset_index()
-        .drop(columns=["index", "MANUAL REVIEW", "pin_10digit", "pin_suffix"])
+        .drop(columns=["index", "pin_10digit", "pin_suffix"])
     )
 
     print("# rows ready for upload: ", len(df_ready))
-    print("# rows flagged for length: ", len(df_review_length))
     print(
-        "# rows flagged for empty/invalid fields: ",
-        len(df_review_empty_invalid),
+        "# rows flagged for pin error: ",
+        len(df_review_pin_error),
     )
-
-    # create new folders with today's date to save xlsx files in (1 each for ready, needing manual shortening of fields, have missing fields or invalid PIN)
+    print("# rows flagged for other errors: ", len(df_other))
+    # create new folders with today's date to save xlsx files in (1 each for ready, needing
+    # manual shortening of fields, have missing fields or invalid PIN)
     folder_for_files_ready = (
         datetime.today().date().strftime("files_for_smartfile_%Y_%m_%d")
     )
     os.makedirs(
         folder_for_files_ready, exist_ok=True
     )  # note this will override an existing folder with same name
-    folder_for_files_review_length = (
-        datetime.today().date().strftime("files_for_review_length_%Y_%m_%d")
+    folder_for_files_review = (
+        datetime.today().date().strftime("files_for_review_%Y_%m_%d")
     )
     os.makedirs(
-        folder_for_files_review_length, exist_ok=True
-    )  # note this will override an existing folder with same name
-    folder_for_files_review_empty_invalid = (
-        datetime.today()
-        .date()
-        .strftime("files_for_review_empty_invalid_%Y_%m_%d")
-    )
-    os.makedirs(
-        folder_for_files_review_empty_invalid, exist_ok=True
+        folder_for_files_review, exist_ok=True
     )  # note this will override an existing folder with same name
 
     # save ready permits batched into 200 permits max per excel file
@@ -612,26 +703,86 @@ def save_xlsx_files(df, max_rows, file_base_name):
         file_dataframe.to_excel(file_name, index=False, engine="xlsxwriter")
 
     # permits needing manual field shortening and those with missing fields will be saved as single xlsx files, not batched by 200 rows
-    df_review_length.index = df_review_length.index + 1
-    df_review_length.index.name = "# [LLINE]"
-    df_review_length = df_review_length.reset_index()
-    file_name_review_length = os.path.join(
-        folder_for_files_review_length, file_base_name + "review_length.xlsx"
-    )
-    df_review_length.to_excel(
-        file_name_review_length, index=False, engine="xlsxwriter"
+    # Create a single Excel file with two sheets: "PIN" and "Other"
+
+    # Define the exact column order
+    COL_ORDER = [
+        "# [LLINE]",
+        "Original PIN",
+        "PIN* [PARID]",
+        "Local Permit No.* [USER28]",
+        "Issue Date* [PERMDT]",
+        "Desc 1* [DESC1]",
+        "Desc 2 Code 1 [USER6]",
+        "Desc 2 Code 2 [USER7]",
+        "Desc 2 Code 3 [USER8]",
+        "Amount* [AMOUNT]",
+        "Assessable [IS_ASSESS]",
+        "Applicant Street Address* [ADDR1]",
+        "Applicant Address 2 [ADDR2]",
+        "Applicant City, State, Zip* [ADDR3]",
+        "Contact Phone* [PHONE]",
+        "Applicant* [USER21]",
+        "Notes [NOTE1]",
+        "Occupy Dt [UDATE1]",
+        "Submit Dt* [CERTDATE]",
+        "Est Comp Dt [UDATE2]",
+        "FLAG COMMENTS",
+        "FLAG, INVALID: PIN* [PARID]",
+        "FLAG, INVALID: pin_10digit",
+        "FLAG, LENGTH: Applicant Name",
+        "FLAG, LENGTH: Permit Number",
+        "FLAG, LENGTH: Applicant Street Address",
+        "FLAG, LENGTH: Note1",
+        "FLAG, VALUE: Amount",
+        "FLAG, EMPTY: PIN",
+        "FLAG, EMPTY: Issue Date",
+        "FLAG, EMPTY: Amount",
+        "FLAG, EMPTY: Applicant",
+        "FLAG, EMPTY: Applicant Street Address",
+        "FLAG, EMPTY: Permit Number",
+        "FLAG, EMPTY: Note1",
+        "Property Address",
+        "Suggested PINs",
+        "Likely_Assessable",
+    ]
+
+    file_name_combined = os.path.join(
+        folder_for_files_review, file_base_name + "review.xlsx"
     )
 
-    df_review_empty_invalid.index = df_review_empty_invalid.index + 1
-    df_review_empty_invalid.index.name = "# [LLINE]"
-    df_review_empty_invalid = df_review_empty_invalid.reset_index()
-    file_name_review_empty_invalid = os.path.join(
-        folder_for_files_review_empty_invalid,
-        file_base_name + "review_empty_invalid.xlsx",
-    )
-    df_review_empty_invalid.to_excel(
-        file_name_review_empty_invalid, index=False, engine="xlsxwriter"
-    )
+    # Copy template workbook
+    template_file = "chicago/templates/permits_needing_review.xlsx"
+    wb = openpyxl.load_workbook(template_file)
+    wb.save(file_name_combined)
+
+    with pd.ExcelWriter(
+        file_name_combined,
+        engine="openpyxl",
+        mode="a",
+        if_sheet_exists="overlay",
+    ) as writer:
+        # PIN_Error sheet
+        df_review_pin_error.index = df_review_pin_error.index + 1
+        df_review_pin_error.index.name = "# [LLINE]"
+        df_review_pin_error = df_review_pin_error.reset_index()
+        df_review_pin_error = df_review_pin_error.reindex(columns=COL_ORDER)
+        df_review_pin_error.to_excel(
+            writer,
+            sheet_name="Pin_Error",
+            index=False,
+            header=False,
+            startrow=1,
+        )
+
+        # Other sheet
+        df_other.index = df_other.index + 1
+        df_other.index.name = "# [LLINE]"
+        df_other = df_other.reset_index()
+        df_other = df_other.reindex(columns=COL_ORDER)
+        df_other.to_excel(
+            writer, sheet_name="Other", index=False, header=False, startrow=1
+        )
 
 
 if __name__ == "__main__":
@@ -685,7 +836,11 @@ if __name__ == "__main__":
         permits_renamed, chicago_pin_universe
     )
 
-    permits_shortened = flag_fix_long_fields(permits_validated)
+    joined_permits = add_address_link_and_suggested_pins(
+        permits_validated, chicago_pin_universe
+    )
+
+    permits_shortened = flag_fix_long_fields(joined_permits)
 
     if deduplicate:
         print(
