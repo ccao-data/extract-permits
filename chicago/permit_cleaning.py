@@ -30,6 +30,7 @@ from datetime import datetime
 
 import numpy as np
 import openpyxl
+import openpyxl.styles
 import pandas as pd
 import requests
 from pyathena import connect
@@ -470,9 +471,9 @@ def add_address_link_and_suggested_pins(df, chicago_pin_universe):
         df["Applicant Street Address* [ADDR1]"],
     )
 
-    # Suggested PINs (replace NA with NO PIN FOUND)
+    # Suggested PINs (replace NA with empty string)
     df = df.rename(columns={"pin": "Suggested PINs"})
-    df["Suggested PINs"] = df["Suggested PINs"].fillna("NO PIN FOUND")
+    df["Suggested PINs"] = df["Suggested PINs"].fillna("")
 
     # Drop the prop_address_full column (no longer needed)
     df = df.drop(columns=["prop_address_full"])
@@ -535,7 +536,7 @@ def add_address_link_and_suggested_pins(df, chicago_pin_universe):
                     kw in re.sub(r"[^a-z\s]", "", str(note).lower())
                     for kw in keywords
                 )
-                else "No"
+                else ""
             )
         )
     )
@@ -610,11 +611,8 @@ def deduplicate_permits(cursor, df, start_date, end_date):
     return true_new_permits
 
 
-def gen_file_base_name():
-    today = datetime.today().date()
-    today_string = today.strftime("%Y_%m_%d")
-    file_name = today_string + "_permits_"
-    return file_name
+def gen_file_base_name(start_date, end_date):
+    return f"{start_date}_to_{end_date}_permits_"
 
 
 def save_xlsx_files(df, max_rows, file_base_name):
@@ -698,7 +696,8 @@ def save_xlsx_files(df, max_rows, file_base_name):
         file_dataframe.index.name = "# [LLINE]"
         file_dataframe = file_dataframe.reset_index()
         file_name = os.path.join(
-            folder_for_files_ready, file_base_name + f"ready_{i + 1}.xlsx"
+            folder_for_files_ready,
+            file_base_name + f"ready_for_upload_{i + 1}.xlsx",
         )
         file_dataframe.to_excel(file_name, index=False, engine="xlsxwriter")
 
@@ -748,11 +747,11 @@ def save_xlsx_files(df, max_rows, file_base_name):
     ]
 
     file_name_combined = os.path.join(
-        folder_for_files_review, file_base_name + "review.xlsx"
+        folder_for_files_review, file_base_name + "needing_review.xlsx"
     )
 
     # Copy template workbook
-    template_file = "chicago/templates/permits_needing_review.xlsx"
+    template_file = os.path.join("templates", "permits_needing_review.xlsx")
     wb = openpyxl.load_workbook(template_file)
     wb.save(file_name_combined)
 
@@ -769,7 +768,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
         df_review_pin_error = df_review_pin_error.reindex(columns=COL_ORDER)
         df_review_pin_error.to_excel(
             writer,
-            sheet_name="Pin_Error",
+            sheet_name="PIN Errors",
             index=False,
             header=False,
             startrow=1,
@@ -781,8 +780,27 @@ def save_xlsx_files(df, max_rows, file_base_name):
         df_other = df_other.reset_index()
         df_other = df_other.reindex(columns=COL_ORDER)
         df_other.to_excel(
-            writer, sheet_name="Other", index=False, header=False, startrow=1
+            writer,
+            sheet_name="Other Errors",
+            index=False,
+            header=False,
+            startrow=1,
         )
+
+        # Style links, since Excel won't do this automatically
+        hyperlink_font = openpyxl.styles.Font(
+            color="0000FF", underline="single"
+        )
+        for sheet_name in ("PIN Errors", "Other Errors"):
+            ws = writer.sheets[sheet_name]
+            for row in ws.iter_rows(
+                min_row=2, max_row=ws.max_row, min_col=1, max_col=ws.max_column
+            ):
+                for cell in row:
+                    if isinstance(cell.value, str) and cell.value.startswith(
+                        "=HYPERLINK("
+                    ):
+                        cell.font = hyperlink_font
 
 
 if __name__ == "__main__":
@@ -854,6 +872,6 @@ if __name__ == "__main__":
     else:
         permits_deduped = permits_shortened
 
-    file_base_name = gen_file_base_name()
+    file_base_name = gen_file_base_name(start_date, end_date)
 
     save_xlsx_files(permits_deduped, 200, file_base_name)

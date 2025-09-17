@@ -8,6 +8,7 @@ dependencies = [
   "pandas==2.1.*",
   "PyAthena==3.0.*",
   "XlsxWriter==3.2.*",
+  "openpyxl==3.1.*",
 ]
 
 [tool.ruff]
