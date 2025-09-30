@@ -505,42 +505,6 @@ def add_address_link_and_suggested_pins(df, chicago_pin_universe):
     # Apply
     df["Suggested PINs"] = df["Suggested PINs"].apply(make_pin_hyperlink)
 
-    # List of keywords to identify likely assessable permits.
-    # This heuristic is a draft and will not be put into production until
-    # reviewed by permit specialists.
-    keywords = [
-        "remodel",
-        "demolition",
-        "construction",
-        "solar",
-        "roof",
-        "foundation",
-        "addition",
-        "garage",
-        "deck",
-        "pool",
-        "basement",
-        "kitchen",
-        "bathroom",
-        "siding",
-        "HVAC",
-        "plumbing",
-        "electrical",
-    ]
-
-    df = df.assign(
-        Likely_Assessable=lambda x: x["Notes [NOTE1]"].apply(
-            lambda note: (
-                "Yes"
-                if any(
-                    kw in re.sub(r"[^a-z\s]", "", str(note).lower())
-                    for kw in keywords
-                )
-                else ""
-            )
-        )
-    )
-
     return df
 
 
@@ -630,7 +594,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
             "pin_suffix",
             "Property Address",
             "Suggested PINs",
-            "Likely_Assessable",
         ]
     )
 
@@ -743,12 +706,20 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "FLAG, EMPTY: Note1",
         "Property Address",
         "Suggested PINs",
-        "Likely_Assessable",
     ]
 
     file_name_combined = os.path.join(
         folder_for_files_review, file_base_name + "needing_review.xlsx"
     )
+
+    # Create a keywords dataframe with permit keywords
+    keywords = [
+        "Addition",
+        "Elevator",
+        "Window",
+        "Construction",
+        "Garage", "Roof", "Demolition", "HVAC", "Flatwork", "Expand", "Basement", "Alarm", "Fire", "Bathroom", "Solar", "New", "Attic", "Vacant", "Conversion", "Rehab", "Enclosed porch", "Alteration", "EFP", "ADU / A.D.U.", "Coach", "Coach House", "Accessory", "Extension", "Dormer", "Erect", "Proposed", "Build", "Wreck", "Finish", "Rec Room", "Convert", "Recreation room", "Sun Room", "Season"
+    ]
 
     # Copy template workbook
     template_file = os.path.join("templates", "permits_needing_review.xlsx")
@@ -802,6 +773,24 @@ def save_xlsx_files(df, max_rows, file_base_name):
                     ):
                         cell.font = hyperlink_font
 
+    # Write to column 1 of 'Assessable Key Word' sheet with each keyword in its own row
+    with pd.ExcelWriter(
+        file_name_combined,
+        engine="openpyxl",
+        mode="a",
+        if_sheet_exists="overlay",
+    ) as writer:
+        df_keywords = pd.DataFrame(keywords, columns=["Keywords"])
+        df_keywords.index = df_keywords.index + 1
+        df_keywords.index.name = "#"
+        df_keywords = df_keywords.reset_index()
+        df_keywords.to_excel(
+            writer,
+            sheet_name="Assessable Key Word",
+            index=False,
+            header=False,
+            startrow=1,
+        )
 
 if __name__ == "__main__":
     # Parse command line arguments
