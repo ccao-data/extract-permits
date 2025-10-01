@@ -718,7 +718,41 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "Elevator",
         "Window",
         "Construction",
-        "Garage", "Roof", "Demolition", "HVAC", "Flatwork", "Expand", "Basement", "Alarm", "Fire", "Bathroom", "Solar", "New", "Attic", "Vacant", "Conversion", "Rehab", "Enclosed porch", "Alteration", "EFP", "ADU / A.D.U.", "Coach", "Coach House", "Accessory", "Extension", "Dormer", "Erect", "Proposed", "Build", "Wreck", "Finish", "Rec Room", "Convert", "Recreation room", "Sun Room", "Season"
+        "Garage",
+        "Roof",
+        "Demolition",
+        "HVAC",
+        "Flatwork",
+        "Expand",
+        "Basement",
+        "Alarm",
+        "Fire",
+        "Bathroom",
+        "Solar",
+        "New",
+        "Attic",
+        "Vacant",
+        "Conversion",
+        "Rehab",
+        "Enclosed porch",
+        "Alteration",
+        "EFP",
+        "ADU",
+        "A.D.U.",
+        "Coach",
+        "Accessory",
+        "Extension",
+        "Dormer",
+        "Erect",
+        "Proposed",
+        "Build",
+        "Wreck",
+        "Finish",
+        "Rec Room",
+        "Convert",
+        "Recreation room",
+        "Sun Room",
+        "Season"
     ]
 
     # Copy template workbook
@@ -732,6 +766,15 @@ def save_xlsx_files(df, max_rows, file_base_name):
         mode="a",
         if_sheet_exists="overlay",
     ) as writer:
+        df_keywords = pd.DataFrame(keywords, columns=["Keywords"])
+        df_keywords.to_excel(
+            writer,
+            sheet_name="Assessable Key Words",
+            index=False,
+            header=False,
+            startrow=1,
+        )
+
         # PIN_Error sheet
         df_review_pin_error.index = df_review_pin_error.index + 1
         df_review_pin_error.index.name = "# [LLINE]"
@@ -773,24 +816,31 @@ def save_xlsx_files(df, max_rows, file_base_name):
                     ):
                         cell.font = hyperlink_font
 
-    # Write to column 1 of 'Assessable Key Word' sheet with each keyword in its own row
-    with pd.ExcelWriter(
-        file_name_combined,
-        engine="openpyxl",
-        mode="a",
-        if_sheet_exists="overlay",
-    ) as writer:
-        df_keywords = pd.DataFrame(keywords, columns=["Keywords"])
-        df_keywords.index = df_keywords.index + 1
-        df_keywords.index.name = "#"
-        df_keywords = df_keywords.reset_index()
-        df_keywords.to_excel(
-            writer,
-            sheet_name="Assessable Key Word",
-            index=False,
-            header=False,
-            startrow=1,
-        )
+
+    # After the ExcelWriter block has closed:
+    wb = openpyxl.load_workbook(file_name_combined)
+
+    # Dynamic range for the keyword list in 'Assessable Key Words' column A (starts at row 2)
+    kw_range = "'Assessable Key Words'!$A$2:INDEX('Assessable Key Words'!$A:$A,COUNTA('Assessable Key Words'!$A:$A))"
+
+    for sheet_name in ("PIN Errors", "Other Errors"):
+        ws = wb[sheet_name]
+
+        # Column AL is column 38
+        match_col = 38
+        ws.cell(row=1, column=match_col, value="Assessable Key Words")
+
+        # For each data row, write the formula
+        for r in range(2, ws.max_row + 1):
+            formula = (
+                f'=TEXTJOIN(", ", TRUE, '
+                f'IF(ISNUMBER(SEARCH(" "&LOWER(TRIM({kw_range}))&" ", '
+                f'" "&LOWER(SUBSTITUTE(Q{r},CHAR(160)," "))&" ")), '
+                f'TRIM({kw_range}), ""))'
+            )
+            ws.cell(row=r, column=match_col).value = formula
+
+    wb.save(file_name_combined)
 
 if __name__ == "__main__":
     # Parse command line arguments
