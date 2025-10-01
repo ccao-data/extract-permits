@@ -801,28 +801,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
             startrow=1,
         )
 
-        # Add formulas directly to worksheet cells
-        for sheet_name in ("PIN Errors", "Other Errors"):
-            ws = writer.sheets[sheet_name]
-            
-            # Add header for the formula column
-            match_col = 38
-            ws.cell(row=1, column=match_col, value="Assessable Key Words")
-            
-            # Get the actual number of data rows from the dataframe
-            if sheet_name == "PIN Errors":
-            num_data_rows = len(df_review_pin_error)
-            else:  # "Other Errors"
-            num_data_rows = len(df_other)
-            
-            # Add formulas to each data row (starting from row 2, going to num_data_rows + 1)
-            kw_range = "'Assessable Key Words'!$A$2:INDEX('Assessable Key Words'!$A:$A,COUNTA('Assessable Key Words'!$A:$A))"
-            for r in range(2, num_data_rows + 2):  # +2 because we start at row 2 and need to include the last row
-            formula = (
-                f'=_xlfn.TEXTJOIN(", ", TRUE, IF(ISNUMBER(SEARCH(" "&LOWER(TRIM({kw_range}))&" ", " "&LOWER(SUBSTITUTE(Q{r},CHAR(160)," "))&" ")), TRIM({kw_range}), ""))'
-            )
-            ws.cell(row=r, column=match_col).value = formula
-
         # Style links, since Excel won't do this automatically
         hyperlink_font = openpyxl.styles.Font(
             color="0000FF", underline="single"
@@ -837,6 +815,31 @@ def save_xlsx_files(df, max_rows, file_base_name):
                         "=HYPERLINK("
                     ):
                         cell.font = hyperlink_font
+
+
+    wb = openpyxl.load_workbook(file_name_combined)
+
+    # Dynamic range for the keyword list in 'Assessable Key Words' column A (starts at row 2)
+    kw_range = "'Assessable Key Words'!$A$2:INDEX('Assessable Key Words'!$A:$A,COUNTA('Assessable Key Words'!$A:$A))"
+
+    for sheet_name in ("PIN Errors", "Other Errors"):
+        ws = wb[sheet_name]
+
+        # Column AL is column 38
+        match_col = 38
+        ws.cell(row=1, column=match_col, value="Assessable Key Words")
+
+        # For each data row, write the formula
+        for r in range(2, ws.max_row + 1):
+            formula = (
+                f'=_xlfn.TEXTJOIN(", ", TRUE, '
+                f'IF(ISNUMBER(SEARCH(" "&LOWER(TRIM({kw_range}))&" ", '
+                f'" "&LOWER(SUBSTITUTE(Q{r},CHAR(160)," "))&" ")), '
+                f'TRIM({kw_range}), ""))'
+            )
+            ws.cell(row=r, column=match_col).value = formula
+
+    wb.save(file_name_combined)
 
 if __name__ == "__main__":
     # Parse command line arguments
