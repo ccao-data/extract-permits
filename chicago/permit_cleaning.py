@@ -806,6 +806,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
             startrow=1,
         )
 
+        # Assessable Key Words sheet
         df_keywords = pd.DataFrame(keywords, columns=["Keywords"])
         df_keywords.to_excel(
             writer,
