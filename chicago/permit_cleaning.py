@@ -505,6 +505,64 @@ def add_address_link_and_suggested_pins(df, chicago_pin_universe):
     # Apply
     df["Suggested PINs"] = df["Suggested PINs"].apply(make_pin_hyperlink)
 
+    # List of keywords to identify likely assessable permits.
+    # This heuristic is a draft and will not be put into production until
+    # reviewed by permit specialists.
+    keywords = [
+            "Addition",
+            "Elevator",
+            "Window",
+            "Construction",
+            "Garage",
+            "Roof",
+            "Demolition",
+            "HVAC",
+            "Flatwork",
+            "Expand",
+            "Basement",
+            "Alarm",
+            "Fire",
+            "Bathroom",
+            "Solar",
+            "New",
+            "Attic",
+            "Vacant",
+            "Conversion",
+            "Rehab",
+            "Enclosed porch",
+            "Alteration",
+            "EFP",
+            "ADU",
+            "A.D.U.",
+            "Coach",
+            "Accessory",
+            "Extension",
+            "Dormer",
+            "Erect",
+            "Proposed",
+            "Build",
+            "Wreck",
+            "Finish",
+            "Rec Room",
+            "Convert",
+            "Recreation room",
+            "Sun Room",
+            "Season"
+        ]
+
+
+
+    df = df.assign(
+        matched_keywords=lambda x: x["Notes [NOTE1]"].apply(
+            lambda note: ", ".join(
+                kw
+                for kw in keywords
+                if kw in re.sub(r"[^a-z\s]", "", str(note).lower())
+            )
+        )
+    )
+
+
     return df
 
 
@@ -594,6 +652,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
             "pin_suffix",
             "Property Address",
             "Suggested PINs",
+            "matched_keywords",
         ]
     )
 
@@ -706,54 +765,12 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "FLAG, EMPTY: Note1",
         "Property Address",
         "Suggested PINs",
+        "matched_keywords",
     ]
 
     file_name_combined = os.path.join(
         folder_for_files_review, file_base_name + "needing_review.xlsx"
     )
-
-    # Create a keywords dataframe with permit keywords
-    keywords = [
-        "Addition",
-        "Elevator",
-        "Window",
-        "Construction",
-        "Garage",
-        "Roof",
-        "Demolition",
-        "HVAC",
-        "Flatwork",
-        "Expand",
-        "Basement",
-        "Alarm",
-        "Fire",
-        "Bathroom",
-        "Solar",
-        "New",
-        "Attic",
-        "Vacant",
-        "Conversion",
-        "Rehab",
-        "Enclosed porch",
-        "Alteration",
-        "EFP",
-        "ADU",
-        "A.D.U.",
-        "Coach",
-        "Accessory",
-        "Extension",
-        "Dormer",
-        "Erect",
-        "Proposed",
-        "Build",
-        "Wreck",
-        "Finish",
-        "Rec Room",
-        "Convert",
-        "Recreation room",
-        "Sun Room",
-        "Season"
-    ]
 
     # Copy template workbook
     template_file = os.path.join("templates", "permits_needing_review.xlsx")
@@ -766,15 +783,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
         mode="a",
         if_sheet_exists="overlay",
     ) as writer:
-        df_keywords = pd.DataFrame(keywords, columns=["Keywords"])
-        df_keywords.to_excel(
-            writer,
-            sheet_name="Assessable Key Words",
-            index=False,
-            header=False,
-            startrow=1,
-        )
-
         # PIN_Error sheet
         df_review_pin_error.index = df_review_pin_error.index + 1
         df_review_pin_error.index.name = "# [LLINE]"
@@ -816,33 +824,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
                     ):
                         cell.font = hyperlink_font
 
-
-    wb = openpyxl.load_workbook(file_name_combined)
-
-    # Dynamic range for the keyword list in 'Assessable Key Words' column A (starts at row 2)
-    kw_range = "'Assessable Key Words'!$A$2:INDEX('Assessable Key Words'!$A:$A,COUNTA('Assessable Key Words'!$A:$A))"
-
-    for sheet_name in ("PIN Errors", "Other Errors"):
-        ws = wb[sheet_name]
-
-        # Column AL is column 38
-        match_col = 38
-        ws.cell(row=1, column=match_col, value="Assessable Key Words")
-
-        # For each data row, write the formula
-        for r in range(2, ws.max_row + 1):
-            formula = (
-                f'=TEXTJOIN(", ", TRUE, '
-                f'IF('
-                f'ISNUMBER(SEARCH('
-                f'LOWER(TRIM({kw_range})), '
-                f'LOWER(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(Q{r},CHAR(160)," "),"."," "),","," "),";"," "),":"," "))'
-                f')), '
-                f'TRIM({kw_range}), ""))'
-            )
-            ws.cell(row=r, column=match_col).value = formula
-
-    wb.save(file_name_combined)
 
 if __name__ == "__main__":
     # Parse command line arguments
