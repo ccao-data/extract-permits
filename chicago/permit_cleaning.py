@@ -449,7 +449,7 @@ def flag_fix_long_fields(df):
 
 # List of keywords to identify likely assessable permits.
 # This is produced via a document provided by Valuations
-# and Data Integrity
+# and Data Integrity.
 
 keywords = [
     "Addition",
