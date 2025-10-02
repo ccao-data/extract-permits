@@ -509,60 +509,58 @@ def add_address_link_and_suggested_pins(df, chicago_pin_universe):
     # This heuristic is a draft and will not be put into production until
     # reviewed by permit specialists.
     keywords = [
-            "Addition",
-            "Elevator",
-            "Window",
-            "Construction",
-            "Garage",
-            "Roof",
-            "Demolition",
-            "HVAC",
-            "Flatwork",
-            "Expand",
-            "Basement",
-            "Alarm",
-            "Fire",
-            "Bathroom",
-            "Solar",
-            "New",
-            "Attic",
-            "Vacant",
-            "Conversion",
-            "Rehab",
-            "Enclosed porch",
-            "Alteration",
-            "EFP",
-            "ADU",
-            "A.D.U.",
-            "Coach",
-            "Accessory",
-            "Extension",
-            "Dormer",
-            "Erect",
-            "Proposed",
-            "Build",
-            "Wreck",
-            "Finish",
-            "Rec Room",
-            "Convert",
-            "Recreation room",
-            "Sun Room",
-            "Season"
-        ]
-
-
+    "Addition", 
+    "Elevator", 
+    "Window", 
+    "Construction", 
+    "Garage",
+    "Roof",
+    "Demolition",
+    "HVAC",
+    "Flatwork",
+    "Expand",
+    "Basement",
+    "Alarm",
+    "Fire",
+    "Bathroom",
+    "Solar",
+    "New",
+    "Attic",
+    "Vacant",
+    "Conversion",
+    "Rehab",
+    "Enclosed porch",
+    "Alteration",
+    "EFP",
+    "ADU",
+    "A.D.U.",
+    "Coach",
+    "Accessory",
+    "Extension",
+    "Dormer",
+    "Erect",
+    "Proposed",
+    "Build",
+    "Wreck",
+    "Finish",
+    "Rec Room",
+    "Convert",
+    "Recreation room",
+    "Sun Room",
+    "Season",
+    ]
 
     df = df.assign(
-        matched_keywords=lambda x: x["Notes [NOTE1]"].apply(
+        Likely_Assessable=lambda x: x["Notes [NOTE1]"].apply(
             lambda note: ", ".join(
-                kw
-                for kw in keywords
-                if kw in re.sub(r"[^a-z\s]", "", str(note).lower())
+                [
+                    kw
+                    for kw in keywords
+                    if kw.lower() in str(note).lower()
+                ]
             )
         )
     )
-
-
     return df
 
 
@@ -652,7 +650,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
             "pin_suffix",
             "Property Address",
             "Suggested PINs",
-            "matched_keywords",
+            "Likely_Assessable",
         ]
     )
 
@@ -765,7 +763,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "FLAG, EMPTY: Note1",
         "Property Address",
         "Suggested PINs",
-        "matched_keywords",
+        "Likely_Assessable",
     ]
 
     file_name_combined = os.path.join(
@@ -783,6 +781,49 @@ def save_xlsx_files(df, max_rows, file_base_name):
         mode="a",
         if_sheet_exists="overlay",
     ) as writer:
+        keywords = [
+            "Addition",
+            "Elevator",
+            "Window",
+            "Construction",
+            "Garage",
+            "Roof",
+            "Demolition",
+            "HVAC",
+            "Flatwork",
+            "Expand",
+            "Basement",
+            "Alarm",
+            "Fire",
+            "Bathroom",
+            "Solar",
+            "New",
+            "Attic",
+            "Vacant",
+            "Conversion",
+            "Rehab",
+            "Enclosed porch",
+            "Alteration",
+            "EFP",
+            "ADU",
+            "A.D.U.",
+            "Coach",
+            "Accessory",
+            "Extension",
+            "Dormer",
+            "Erect",
+            "Proposed",
+            "Build",
+            "Wreck",
+            "Finish",
+            "Rec Room",
+            "Convert",
+            "Recreation room",
+            "Sun Room",
+            "Season",
+        ]
+
+        
         # PIN_Error sheet
         df_review_pin_error.index = df_review_pin_error.index + 1
         df_review_pin_error.index.name = "# [LLINE]"
@@ -804,6 +845,15 @@ def save_xlsx_files(df, max_rows, file_base_name):
         df_other.to_excel(
             writer,
             sheet_name="Other Errors",
+            index=False,
+            header=False,
+            startrow=1,
+        )
+
+        df_keywords = pd.DataFrame(keywords, columns=["Keywords"])
+        df_keywords.to_excel(
+            writer,
+            sheet_name="Assessable Key Words",
             index=False,
             header=False,
             startrow=1,
