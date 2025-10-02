@@ -493,7 +493,6 @@ keywords = [
     "Season",
 ]
 
-
 # join addresses and format columns
 def add_address_link_and_suggested_pins(df, chicago_pin_universe):
     # Collapse multiple pins per address into a single comma-separated string
@@ -552,6 +551,8 @@ def add_address_link_and_suggested_pins(df, chicago_pin_universe):
     # Apply
     df["Suggested PINs"] = df["Suggested PINs"].apply(make_pin_hyperlink)
 
+    # Create a comma separated list of matched keywords. This is derived from
+    # the list called keywords.
     df = df.assign(
         Matched_Keywords=lambda x: x["Notes [NOTE1]"].apply(
             lambda note: ", ".join(
