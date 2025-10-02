@@ -832,9 +832,12 @@ def save_xlsx_files(df, max_rows, file_base_name):
         # For each data row, write the formula
         for r in range(2, ws.max_row + 1):
             formula = (
-                f'=_xlfn.TEXTJOIN(", ", TRUE, '
-                f'IF(ISNUMBER(SEARCH(" "&LOWER(TRIM({kw_range}))&" ", '
-                f'" "&LOWER(SUBSTITUTE(Q{r},CHAR(160)," "))&" ")), '
+                f'=TEXTJOIN(", ", TRUE, '
+                f'IF('
+                f'ISNUMBER(SEARCH('
+                f'LOWER(TRIM({kw_range})), '
+                f'LOWER(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(Q{r},CHAR(160)," "),"."," "),","," "),";"," "),":"," "))'
+                f')), '
                 f'TRIM({kw_range}), ""))'
             )
             ws.cell(row=r, column=match_col).value = formula
