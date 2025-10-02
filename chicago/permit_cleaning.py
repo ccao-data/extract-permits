@@ -493,6 +493,7 @@ keywords = [
     "Season",
 ]
 
+
 # join addresses and format columns
 def add_address_link_and_suggested_pins(df, chicago_pin_universe):
     # Collapse multiple pins per address into a single comma-separated string
