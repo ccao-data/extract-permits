@@ -555,11 +555,13 @@ def add_address_link_and_suggested_pins(df, chicago_pin_universe):
     # Create a comma separated list of matched keywords. This is derived from
     # the list called keywords.
     df = df.assign(
-        Matched_Keywords=lambda x: x["Notes [NOTE1]"].apply(
-            lambda note: ", ".join(
-                [kw for kw in keywords if kw.lower() in str(note).lower()]
+        **{
+            "Matched Keywords": df["Notes [NOTE1]"].apply(
+                lambda note: ", ".join(
+                    [kw for kw in keywords if kw.lower() in str(note).lower()]
+                )
             )
-        )
+        }
     )
     return df
 
@@ -650,7 +652,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
             "pin_suffix",
             "Property Address",
             "Suggested PINs",
-            "Matched_Keywords",
+            "Matched Keywords",
         ]
     )
 
@@ -763,7 +765,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "FLAG, EMPTY: Note1",
         "Property Address",
         "Suggested PINs",
-        "Matched_Keywords",
+        "Matched Keywords",
     ]
 
     file_name_combined = os.path.join(
