@@ -447,6 +447,54 @@ def flag_fix_long_fields(df):
     return df
 
 
+# List of keywords to identify likely assessable permits.
+# This is produced via a document provided by Valuations
+# and Data Integrity.
+# Build was in the provided document
+# but is a component of too many words (building)
+
+keywords = [
+    "Addition",
+    "Elevator",
+    "Window",
+    "Construction",
+    "Garage",
+    "Roof",
+    "Demolition",
+    "HVAC",
+    "Flatwork",
+    "Expand",
+    "Basement",
+    "Alarm",
+    "Fire",
+    "Bathroom",
+    "Solar",
+    "New",
+    "Attic",
+    "Vacant",
+    "Conversion",
+    "Rehab",
+    "Enclosed porch",
+    "Alteration",
+    "EFP",
+    "ADU",
+    "A.D.U.",
+    "Coach",
+    "Accessory",
+    "Extension",
+    "Dormer",
+    "Erect",
+    "Proposed",
+    "Wreck",
+    "Finish",
+    "Rec Room",
+    "Convert",
+    "Recreation room",
+    "Sun Room",
+    "Season",
+]
+
+
 # join addresses and format columns
 def add_address_link_and_suggested_pins(df, chicago_pin_universe):
     # Collapse multiple pins per address into a single comma-separated string
@@ -505,42 +553,17 @@ def add_address_link_and_suggested_pins(df, chicago_pin_universe):
     # Apply
     df["Suggested PINs"] = df["Suggested PINs"].apply(make_pin_hyperlink)
 
-    # List of keywords to identify likely assessable permits.
-    # This heuristic is a draft and will not be put into production until
-    # reviewed by permit specialists.
-    keywords = [
-        "remodel",
-        "demolition",
-        "construction",
-        "solar",
-        "roof",
-        "foundation",
-        "addition",
-        "garage",
-        "deck",
-        "pool",
-        "basement",
-        "kitchen",
-        "bathroom",
-        "siding",
-        "HVAC",
-        "plumbing",
-        "electrical",
-    ]
-
+    # Create a comma separated list of matched keywords. This is derived from
+    # the list called keywords.
     df = df.assign(
-        Likely_Assessable=lambda x: x["Notes [NOTE1]"].apply(
-            lambda note: (
-                "Yes"
-                if any(
-                    kw in re.sub(r"[^a-z\s]", "", str(note).lower())
-                    for kw in keywords
+        **{
+            "Matched Keywords": df["Notes [NOTE1]"].apply(
+                lambda note: ", ".join(
+                    [kw for kw in keywords if kw.lower() in str(note).lower()]
                 )
-                else ""
             )
-        )
+        }
     )
-
     return df
 
 
@@ -630,7 +653,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
             "pin_suffix",
             "Property Address",
             "Suggested PINs",
-            "Likely_Assessable",
+            "Matched Keywords",
         ]
     )
 
@@ -743,7 +766,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "FLAG, EMPTY: Note1",
         "Property Address",
         "Suggested PINs",
-        "Likely_Assessable",
+        "Matched Keywords",
     ]
 
     file_name_combined = os.path.join(
@@ -782,6 +805,16 @@ def save_xlsx_files(df, max_rows, file_base_name):
         df_other.to_excel(
             writer,
             sheet_name="Other Errors",
+            index=False,
+            header=False,
+            startrow=1,
+        )
+
+        # Assessable Key Words sheet
+        df_keywords = pd.DataFrame(keywords, columns=["Keywords"])
+        df_keywords.to_excel(
+            writer,
+            sheet_name="Assessable Key Words",
             index=False,
             header=False,
             startrow=1,
