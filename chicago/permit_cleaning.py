@@ -864,7 +864,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
         hyperlink_font = openpyxl.styles.Font(
             color="0000FF", underline="single"
         )
-        for sheet_name in ("PIN Errors", "Other Errors"):
+        for row in ws.iter_rows(
             ws = writer.sheets[sheet_name]
             for row in ws.iter_rows(
                 min_row=2, max_row=ws.max_row, min_col=1, max_col=ws.max_column
