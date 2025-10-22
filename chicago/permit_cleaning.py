@@ -768,7 +768,8 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "Suggested PINs",
         "Matched Keywords",
     ]
-    
+
+    # List of columns to leave unlocked for editing in excel
     unlock_columns = [
         "PIN* [PARID]",
         "Applicant* [USER21]",
@@ -830,9 +831,9 @@ def save_xlsx_files(df, max_rows, file_base_name):
             startrow=1,
         )
 
-    # Lock all cells except for unlock_columns in the relevant sheets
+    # Lock all cells except for unlock_columns
     wb = openpyxl.load_workbook(file_name_combined)
-    for sheet_name in ("PIN Errors", "Other Errors"):
+    for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
         # Find column indices for unlock_columns
         header_row = 1
@@ -843,25 +844,39 @@ def save_xlsx_files(df, max_rows, file_base_name):
                 col_indices[cell_value] = col
 
         # Lock all cells by default
-        for row in ws.iter_rows(min_row=header_row, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
+        for row in ws.iter_rows(
+            min_row=header_row,
+            max_row=ws.max_row,
+            min_col=1,
+            max_col=ws.max_column,
+        ):
             for cell in row:
                 cell.protection = openpyxl.styles.Protection(locked=True)
 
         # Unlock cells in unlock_columns
-        for col_name, col_idx in col_indices.items():
+        for _, col_idx in col_indices.items():
             for row in range(header_row, ws.max_row + 1):
-                ws.cell(row=row, column=col_idx).protection = openpyxl.styles.Protection(locked=False)
+                ws.cell(
+                    row=row, column=col_idx
+                ).protection = openpyxl.styles.Protection(locked=False)
 
         # Style links, since Excel won't do this automatically
-        hyperlink_font = openpyxl.styles.Font(color="0000FF", underline="single")
+        hyperlink_font = openpyxl.styles.Font(
+            color="0000FF", underline="single"
+        )
         for row in ws.iter_rows(
-            min_row=header_row + 1, max_row=ws.max_row, min_col=1, max_col=ws.max_column
+            min_row=header_row + 1,
+            max_row=ws.max_row,
+            min_col=1,
+            max_col=ws.max_column,
         ):
             for cell in row:
-                if isinstance(cell.value, str) and cell.value.startswith("=HYPERLINK("):
+                if isinstance(cell.value, str) and cell.value.startswith(
+                    "=HYPERLINK("
+                ):
                     cell.font = hyperlink_font
 
-        # Enable worksheet protection (set password if needed)
+        # Enable worksheet protection
         ws.protection.sheet = True
         ws.protection.enable()
 
