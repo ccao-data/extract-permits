@@ -865,15 +865,16 @@ def save_xlsx_files(df, max_rows, file_base_name):
             color="0000FF", underline="single"
         )
         for row in ws.iter_rows(
-            ws = writer.sheets[sheet_name]
-            for row in ws.iter_rows(
-                min_row=2, max_row=ws.max_row, min_col=1, max_col=ws.max_column
-            ):
-                for cell in row:
-                    if isinstance(cell.value, str) and cell.value.startswith(
-                        "=HYPERLINK("
-                    ):
-                        cell.font = hyperlink_font
+            min_row=header_row + 1,
+            max_row=ws.max_row,
+            min_col=1,
+            max_col=ws.max_column,
+        ):
+            for cell in row:
+                if isinstance(cell.value, str) and cell.value.startswith(
+                    "=HYPERLINK("
+                ):
+                    cell.font = hyperlink_font
 
         # Enable worksheet protection
         ws.protection.sheet = True
