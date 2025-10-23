@@ -877,7 +877,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
                     cell.font = hyperlink_font
 
         # Enable worksheet protection
-        ws.protection.sheet = True
         ws.protection.enable()
 
     wb.save(file_name_combined)
