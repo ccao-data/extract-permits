@@ -831,55 +831,42 @@ def save_xlsx_files(df, max_rows, file_base_name):
             startrow=1,
         )
 
-    # Lock all cells except for unlock_columns
-    wb = openpyxl.load_workbook(file_name_combined)
-    for sheet_name in wb.sheetnames:
-        ws = wb[sheet_name]
-        # Find column indices for unlock_columns
-        header_row = 1
-        cols_to_unlock = {}
-        for col in range(1, ws.max_column + 1):
-            cell_value = ws.cell(row=header_row, column=col).value
-            if cell_value in unlock_columns:
-                col_indices[cell_value] = col
+        # Apply extra styles and formatting to error sheets
+        for sheet_name in ("PIN Errors", "Other Errors"):
+            ws = writer.sheets[sheet_name]
 
-        # Lock all cells by default
-        for row in ws.iter_rows(
-            min_row=header_row,
-            max_row=ws.max_row,
-            min_col=1,
-            max_col=ws.max_column,
-        ):
-            for cell in row:
-                cell.protection = openpyxl.styles.Protection(locked=True)
+            # Find column indices to unlock
+            header_row = 1
+            cols_to_unlock = {}
+            for col in range(1, ws.max_column + 1):
+                cell_value = ws.cell(row=header_row, column=col).value
+                if cell_value in unlock_columns:
+                    cols_to_unlock[cell_value] = col
+            col_idxs_to_unlock = set(cols_to_unlock.values())
 
-        # Unlock cells in unlock_columns
-        for _, col_idx in col_indices.items():
-            for row in range(header_row, ws.max_row + 1):
-                ws.cell(
-                    row=row, column=col_idx
-                ).protection = openpyxl.styles.Protection(locked=False)
+            # Style links, since Excel won't do this automatically
+            hyperlink_font = openpyxl.styles.Font(
+                color="0000FF", underline="single"
+            )
 
-        # Style links, since Excel won't do this automatically
-        hyperlink_font = openpyxl.styles.Font(
-            color="0000FF", underline="single"
-        )
-        for row in ws.iter_rows(
-            min_row=header_row + 1,
-            max_row=ws.max_row,
-            min_col=1,
-            max_col=ws.max_column,
-        ):
-            for cell in row:
-                if isinstance(cell.value, str) and cell.value.startswith(
-                    "=HYPERLINK("
-                ):
-                    cell.font = hyperlink_font
-
-        # Enable worksheet protection
-        ws.protection.enable()
-
-    wb.save(file_name_combined)
+            for row in ws.iter_rows(
+                min_row=header_row,
+                max_row=ws.max_row,
+                min_col=1,
+                max_col=ws.max_column,
+            ):
+                for cell in row:
+                    # Lock columns as necessary
+                    cell.protection = openpyxl.styles.Protection(
+                        locked=(cell.col_idx not in col_idxs_to_unlock)
+                    )
+                    # Style links
+                    if isinstance(cell.value, str) and cell.value.startswith(
+                        "=HYPERLINK("
+                    ):
+                        cell.font = hyperlink_font
+            # Enable worksheet protection
+            ws.protection.enable()
 
 
 if __name__ == "__main__":
