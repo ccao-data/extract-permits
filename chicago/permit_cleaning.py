@@ -837,7 +837,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
         ws = wb[sheet_name]
         # Find column indices for unlock_columns
         header_row = 1
-        col_indices = {}
+        cols_to_unlock = {}
         for col in range(1, ws.max_column + 1):
             cell_value = ws.cell(row=header_row, column=col).value
             if cell_value in unlock_columns:
