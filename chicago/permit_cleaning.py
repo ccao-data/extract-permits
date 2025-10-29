@@ -301,17 +301,18 @@ def flag_invalid_pins(df, chicago_pin_universe):
     )
 
     # create variable that is the numbers following the 10-digit PIN
-    # (not pulling last 4 digits from the end in case there are PINs that are not 14-digits in Chicago permit data)
     df["pin_suffix"] = df["PIN* [PARID]"].astype("string").str[10:]
 
-    # comment for rows with invalid pin
-    df["FLAG COMMENTS"] += df["FLAG, INVALID: PIN* [PARID]"].apply(
-        lambda val: ""
-        if val == 0
-        else "PIN* [PARID] is invalid, see Original PIN for raw form; "
-    )
-    df["FLAG COMMENTS"] += df["FLAG, INVALID: pin_10digit"].apply(
-        lambda val: "" if val == 0 else "10-digit PIN is invalid; "
+    # comment for rows with invalid PINs
+    df["FLAG COMMENTS"] += df.apply(
+        lambda row: "First 10 digits of PIN* [PARID] do not match a valid PIN10; "
+        if row["FLAG, INVALID: pin_10digit"] == 1
+        else (
+            "First 10 digits of PIN* [PARID] match a valid PIN10, but last 4 digits do not match; "
+            if row["FLAG, INVALID: PIN* [PARID]"] == 1
+            else ""
+        ),
+        axis=1,
     )
 
     return df
@@ -864,6 +865,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
             hyperlink_font = openpyxl.styles.Font(
                 color="0000FF", underline="single"
             )
+            wrap_alignment = openpyxl.styles.Alignment(wrap_text=True)
 
             for row in ws.iter_rows(
                 min_row=header_row,
@@ -889,6 +891,15 @@ def save_xlsx_files(df, max_rows, file_base_name):
                     cell.protection = openpyxl.styles.Protection(
                         locked=(cell.col_idx not in col_idxs_to_unlock)
                     )
+
+                    # We wrap text so that long notes and addresses do not stray into the following column
+                    cell.alignment = wrap_alignment
+
+                    # Set row height to 15 for all rows so that wrapped text doesn't
+                    # expand row height.
+                    for r in range(1, ws.max_row + 1):
+                        ws.row_dimensions[r].height = 15
+
                     # Style links
                     if isinstance(cell.value, str) and cell.value.startswith(
                         "=HYPERLINK("
