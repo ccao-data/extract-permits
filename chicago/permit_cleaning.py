@@ -731,6 +731,9 @@ def save_xlsx_files(df, max_rows, file_base_name):
     COL_ORDER = [
         "# [LLINE]",
         "Original PIN",
+        "FLAG COMMENTS",
+        "Property Address",
+        "Suggested PINs",
         "PIN* [PARID]",
         "Local Permit No.* [USER28]",
         "Issue Date* [PERMDT]",
@@ -749,7 +752,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "Occupy Dt [UDATE1]",
         "Submit Dt* [CERTDATE]",
         "Est Comp Dt [UDATE2]",
-        "FLAG COMMENTS",
         "FLAG, INVALID: PIN* [PARID]",
         "FLAG, INVALID: pin_10digit",
         "FLAG, LENGTH: Applicant Name",
@@ -764,8 +766,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "FLAG, EMPTY: Applicant Street Address",
         "FLAG, EMPTY: Permit Number",
         "FLAG, EMPTY: Note1",
-        "Property Address",
-        "Suggested PINs",
         "Matched Keywords",
     ]
 
@@ -778,6 +778,22 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "Notes [NOTE1]",
         "Amount* [AMOUNT]",
         "Issue Date* [PERMDT]",
+    ]
+
+    unhidden_columns = [
+        "FLAG COMMENTS",
+        "Property Address",
+        "Suggested PINs",
+        "PIN* [PARID]",
+        "Local Permit No.* [USER28]",
+        "Issue Date* [PERMDT]",
+        "Amount* [AMOUNT]",
+        "Applicant Street Address* [ADDR1]",
+        "Applicant City, State, Zip* [ADDR3]",
+        "Applicant* [USER21]",
+        "Notes [NOTE1]",
+        "Matched Keywords",
+        "Auto-updating Validation",
     ]
 
     file_name_combined = os.path.join(
@@ -856,6 +872,26 @@ def save_xlsx_files(df, max_rows, file_base_name):
                 max_col=ws.max_column,
             ):
                 for cell in row:
+                    # Hide columns except those in unhidden_columns
+                    header_value = ws.cell(row=header_row, column=cell.col_idx).value
+                    if header_value not in unhidden_columns:
+                        ws.column_dimensions[cell.column_letter].hidden = True
+
+                    # Reorder columns so unhidden_columns are first and in the specified order
+                    # Find mapping from header to column index
+                    header_map = {ws.cell(row=header_row, column=col).value: col for col in range(1, ws.max_column + 1)}
+                    # Only keep columns that exist in the sheet
+                    ordered_cols = [header_map[col] for col in unhidden_columns if col in header_map]
+                    # Add the rest of the columns (hidden ones) after
+                    remaining_cols = [col for col in range(1, ws.max_column + 1) if col not in ordered_cols]
+                    final_order = ordered_cols + remaining_cols
+
+                    # Move columns to match final_order
+                    ws.move_range(
+                        f"A{header_row}:{openpyxl.utils.get_column_letter(ws.max_column)}{ws.max_row}",
+                        rows=0,
+                        cols=0
+                    )
                     # Lock columns as necessary
                     cell.protection = openpyxl.styles.Protection(
                         locked=(cell.col_idx not in col_idxs_to_unlock)
@@ -868,6 +904,8 @@ def save_xlsx_files(df, max_rows, file_base_name):
             # Enable worksheet protection
             ws.protection.enable()
 
+            if sheet_name == "Other Errors":
+                ws.sheet_state = "hidden"  
 
 if __name__ == "__main__":
     # Parse command line arguments
