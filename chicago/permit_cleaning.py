@@ -873,24 +873,17 @@ def save_xlsx_files(df, max_rows, file_base_name):
             ):
                 for cell in row:
                     # Hide columns except those in unhidden_columns
-                    header_value = ws.cell(row=header_row, column=cell.col_idx).value
+                    header_value = ws.cell(
+                        row=header_row, column=cell.col_idx
+                    ).value
                     if header_value not in unhidden_columns:
                         ws.column_dimensions[cell.column_letter].hidden = True
-
-                    # Reorder columns so unhidden_columns are first and in the specified order
-                    # Find mapping from header to column index
-                    header_map = {ws.cell(row=header_row, column=col).value: col for col in range(1, ws.max_column + 1)}
-                    # Only keep columns that exist in the sheet
-                    ordered_cols = [header_map[col] for col in unhidden_columns if col in header_map]
-                    # Add the rest of the columns (hidden ones) after
-                    remaining_cols = [col for col in range(1, ws.max_column + 1) if col not in ordered_cols]
-                    final_order = ordered_cols + remaining_cols
 
                     # Move columns to match final_order
                     ws.move_range(
                         f"A{header_row}:{openpyxl.utils.get_column_letter(ws.max_column)}{ws.max_row}",
                         rows=0,
-                        cols=0
+                        cols=0,
                     )
                     # Lock columns as necessary
                     cell.protection = openpyxl.styles.Protection(
@@ -905,7 +898,8 @@ def save_xlsx_files(df, max_rows, file_base_name):
             ws.protection.enable()
 
             if sheet_name == "Other Errors":
-                ws.sheet_state = "hidden"  
+                ws.sheet_state = "hidden"
+
 
 if __name__ == "__main__":
     # Parse command line arguments
