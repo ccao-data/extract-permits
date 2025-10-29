@@ -770,17 +770,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "Matched Keywords",
     ]
 
-    # List of columns to leave unlocked for editing in excel
-    unlock_columns = [
-        "PIN* [PARID]",
-        "Applicant* [USER21]",
-        "Local Permit No.* [USER28]",
-        "Applicant Street Address* [ADDR1]",
-        "Notes [NOTE1]",
-        "Amount* [AMOUNT]",
-        "Issue Date* [PERMDT]",
-    ]
-
     unhidden_columns = [
         "FLAG COMMENTS",
         "Property Address",
@@ -852,14 +841,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
         for sheet_name in ("PIN Errors", "Other Errors"):
             ws = writer.sheets[sheet_name]
 
-            # Find column indices to unlock
             header_row = 1
-            cols_to_unlock = {}
-            for col in range(1, ws.max_column + 1):
-                cell_value = ws.cell(row=header_row, column=col).value
-                if cell_value in unlock_columns:
-                    cols_to_unlock[cell_value] = col
-            col_idxs_to_unlock = set(cols_to_unlock.values())
 
             # Style links, since Excel won't do this automatically
             hyperlink_font = openpyxl.styles.Font(
@@ -887,10 +869,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
                         rows=0,
                         cols=0,
                     )
-                    # Lock columns as necessary
-                    cell.protection = openpyxl.styles.Protection(
-                        locked=(cell.col_idx not in col_idxs_to_unlock)
-                    )
 
                     # We wrap text so that long notes and addresses do not stray into the following column
                     cell.alignment = wrap_alignment
@@ -905,8 +883,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
                         "=HYPERLINK("
                     ):
                         cell.font = hyperlink_font
-            # Enable worksheet protection
-            ws.protection.enable()
 
             if sheet_name == "Other Errors":
                 ws.sheet_state = "hidden"
