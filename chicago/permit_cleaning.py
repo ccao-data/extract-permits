@@ -301,6 +301,7 @@ def flag_invalid_pins(df, chicago_pin_universe):
     )
 
     # create variable that is the numbers following the 10-digit PIN
+    # (not pulling last 4 digits from the end in case there are PINs that are not 14-digits in Chicago permit data)
     df["pin_suffix"] = df["PIN* [PARID]"].astype("string").str[10:]
 
     # comment for rows with invalid PINs
@@ -837,16 +838,17 @@ def save_xlsx_files(df, max_rows, file_base_name):
             startrow=1,
         )
 
+        # Style links, since Excel won't do this automatically
+        hyperlink_font = openpyxl.styles.Font(
+            color="0000FF", underline="single"
+        )
+
         # Apply extra styles and formatting to error sheets
         for sheet_name in ("PIN Errors", "Other Errors"):
             ws = writer.sheets[sheet_name]
 
             header_row = 1
 
-            # Style links, since Excel won't do this automatically
-            hyperlink_font = openpyxl.styles.Font(
-                color="0000FF", underline="single"
-            )
             wrap_alignment = openpyxl.styles.Alignment(wrap_text=True)
 
             for row in ws.iter_rows(
@@ -862,13 +864,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
                     ).value
                     if header_value not in unhidden_columns:
                         ws.column_dimensions[cell.column_letter].hidden = True
-
-                    # Move columns to match final_order
-                    ws.move_range(
-                        f"A{header_row}:{openpyxl.utils.get_column_letter(ws.max_column)}{ws.max_row}",
-                        rows=0,
-                        cols=0,
-                    )
 
                     # We wrap text so that long notes and addresses do not stray into the following column
                     cell.alignment = wrap_alignment
