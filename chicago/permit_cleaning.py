@@ -844,43 +844,47 @@ def save_xlsx_files(df, max_rows, file_base_name):
             color="0000FF", underline="single"
         )
 
-    for sheet_name in ("PIN Errors", "Other Errors"):
-        ws = writer.sheets[sheet_name]
-        header_row = 1
+
+
         wrap_alignment = openpyxl.styles.Alignment(wrap_text=True)
+        hyperlink_font = openpyxl.styles.Font(color="0000FF", underline="single")
 
-        header_values = {
-            col: ws.cell(row=header_row, column=col).value
-            for col in range(1, ws.max_column + 1)
-        }
+        for sheet_name in ("PIN Errors", "Other Errors"):
+            print(f"[{sheet_name}] formatting …")
+            ws = writer.sheets[sheet_name]
+            header_row = 1
 
-        cols_to_hide = [
-            col
-            for col, val in header_values.items()
-            if val not in unhidden_columns
-        ]
+            # Cache header row values
+            header_values = {
+                col: ws.cell(row=header_row, column=col).value
+                for col in range(1, ws.max_column + 1)
+            }
 
-        for col in cols_to_hide:
-            ws.column_dimensions[get_column_letter(col)].hidden = True
+            # Hide columns not in unhidden_columns
+            for col, header_value in header_values.items():
+                if header_value not in unhidden_columns:
+                    ws.column_dimensions[get_column_letter(col)].hidden = True
 
-        for row_idx, row in enumerate(
-            ws.iter_rows(
+            # Apply formatting to *all* cells in one pass
+            for row in ws.iter_rows(
                 min_row=header_row,
                 max_row=ws.max_row,
                 min_col=1,
                 max_col=ws.max_column,
-            ),
-            start=header_row,
-        ):
-            ws.row_dimensions[row_idx].height = 15
-            for cell in row:
-                cell.alignment = wrap_alignment
-                v = cell.value
-                if isinstance(v, str) and v.startswith("=HYPERLINK("):
-                    cell.font = hyperlink_font
+            ):
+                ws.row_dimensions[row[0].row].height = 15
+                for cell in row:
+                    # Wrap all text
+                    cell.alignment = wrap_alignment
 
-        if sheet_name == "Other Errors":
-            ws.sheet_state = "hidden"
+                    # Style hyperlink formulas
+                    v = cell.value
+                    if isinstance(v, str) and v.startswith("=HYPERLINK("):
+                        cell.font = hyperlink_font
+
+            # Hide "Other Errors" sheet after formatting
+            if sheet_name == "Other Errors":
+                ws.sheet_state = "hidden"
 
 
 if __name__ == "__main__":
