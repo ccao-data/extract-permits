@@ -839,12 +839,8 @@ def save_xlsx_files(df, max_rows, file_base_name):
             startrow=1,
         )
 
-        # Style links, since Excel won't do this automatically
-        hyperlink_font = openpyxl.styles.Font(
-            color="0000FF", underline="single"
-        )
-
         wrap_alignment = openpyxl.styles.Alignment(wrap_text=True)
+        # Style links, since Excel won't do this automatically
         hyperlink_font = openpyxl.styles.Font(
             color="0000FF", underline="single"
         )
@@ -864,7 +860,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
                 if header_value not in unhidden_columns:
                     ws.column_dimensions[get_column_letter(col)].hidden = True
 
-            # Apply formatting to *all* cells in one pass
+            # Apply formatting to all cells
             for row in ws.iter_rows(
                 min_row=header_row,
                 max_row=ws.max_row,
@@ -873,7 +869,9 @@ def save_xlsx_files(df, max_rows, file_base_name):
             ):
                 ws.row_dimensions[row[0].row].height = 15
                 for cell in row:
-                    # Wrap all text
+                    # Wrap text with a designated height so that
+                    # it doesn't print into other columns or 
+                    # expand row height.
                     cell.alignment = wrap_alignment
 
                     # Style hyperlink formulas
