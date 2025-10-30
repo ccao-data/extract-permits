@@ -33,12 +33,10 @@ import openpyxl
 import openpyxl.styles
 import pandas as pd
 import requests
+from openpyxl.utils import get_column_letter
 from pyathena import connect
 from pyathena.cursor import Cursor
 from pyathena.pandas.util import as_pandas
-
-import time
-from openpyxl.utils import get_column_letter
 
 
 def parse_args() -> tuple[str, str, bool]:
@@ -847,8 +845,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
         )
 
     for sheet_name in ("PIN Errors", "Other Errors"):
-        print(f"[{sheet_name}] starting …")
-
         ws = writer.sheets[sheet_name]
         header_row = 1
         wrap_alignment = openpyxl.styles.Alignment(wrap_text=True)
@@ -859,39 +855,33 @@ def save_xlsx_files(df, max_rows, file_base_name):
         }
 
         cols_to_hide = [
-            col for col, val in header_values.items()
+            col
+            for col, val in header_values.items()
             if val not in unhidden_columns
         ]
-        
+
         for col in cols_to_hide:
             ws.column_dimensions[get_column_letter(col)].hidden = True
 
-        for row in ws.iter_rows(
-            min_row=header_row,
-            max_row=ws.max_row,
-            min_col=1,
-            max_col=ws.max_column,
+        for row_idx, row in enumerate(
+            ws.iter_rows(
+                min_row=header_row,
+                max_row=ws.max_row,
+                min_col=1,
+                max_col=ws.max_column,
+            ),
+            start=header_row,
         ):
+            ws.row_dimensions[row_idx].height = 15
             for cell in row:
                 cell.alignment = wrap_alignment
-
-        for r in range(1, ws.max_row + 1):
-            ws.row_dimensions[r].height = 15
-
-        for row in ws.iter_rows(
-            min_row=header_row,
-            max_row=ws.max_row,
-            min_col=1,
-            max_col=ws.max_column,
-        ):
-            for cell in row:
                 v = cell.value
                 if isinstance(v, str) and v.startswith("=HYPERLINK("):
                     cell.font = hyperlink_font
 
-
         if sheet_name == "Other Errors":
             ws.sheet_state = "hidden"
+
 
 if __name__ == "__main__":
     # Parse command line arguments
