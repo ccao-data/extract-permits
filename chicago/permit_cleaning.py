@@ -844,13 +844,12 @@ def save_xlsx_files(df, max_rows, file_base_name):
             color="0000FF", underline="single"
         )
 
-
-
         wrap_alignment = openpyxl.styles.Alignment(wrap_text=True)
-        hyperlink_font = openpyxl.styles.Font(color="0000FF", underline="single")
+        hyperlink_font = openpyxl.styles.Font(
+            color="0000FF", underline="single"
+        )
 
         for sheet_name in ("PIN Errors", "Other Errors"):
-            print(f"[{sheet_name}] formatting …")
             ws = writer.sheets[sheet_name]
             header_row = 1
 
