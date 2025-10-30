@@ -37,6 +37,9 @@ from pyathena import connect
 from pyathena.cursor import Cursor
 from pyathena.pandas.util import as_pandas
 
+import time
+from openpyxl.utils import get_column_letter
+
 
 def parse_args() -> tuple[str, str, bool]:
     """Helper function to parse and validate command line args to this
@@ -843,45 +846,52 @@ def save_xlsx_files(df, max_rows, file_base_name):
             color="0000FF", underline="single"
         )
 
-        # Apply extra styles and formatting to error sheets
-        for sheet_name in ("PIN Errors", "Other Errors"):
-            ws = writer.sheets[sheet_name]
+    for sheet_name in ("PIN Errors", "Other Errors"):
+        print(f"[{sheet_name}] starting …")
 
-            header_row = 1
+        ws = writer.sheets[sheet_name]
+        header_row = 1
+        wrap_alignment = openpyxl.styles.Alignment(wrap_text=True)
 
-            wrap_alignment = openpyxl.styles.Alignment(wrap_text=True)
+        header_values = {
+            col: ws.cell(row=header_row, column=col).value
+            for col in range(1, ws.max_column + 1)
+        }
 
-            for row in ws.iter_rows(
-                min_row=header_row,
-                max_row=ws.max_row,
-                min_col=1,
-                max_col=ws.max_column,
-            ):
-                for cell in row:
-                    # Hide columns except those in unhidden_columns
-                    header_value = ws.cell(
-                        row=header_row, column=cell.col_idx
-                    ).value
-                    if header_value not in unhidden_columns:
-                        ws.column_dimensions[cell.column_letter].hidden = True
+        cols_to_hide = [
+            col for col, val in header_values.items()
+            if val not in unhidden_columns
+        ]
+        
+        for col in cols_to_hide:
+            ws.column_dimensions[get_column_letter(col)].hidden = True
 
-                    # We wrap text so that long notes and addresses do not stray into the following column
-                    cell.alignment = wrap_alignment
+        for row in ws.iter_rows(
+            min_row=header_row,
+            max_row=ws.max_row,
+            min_col=1,
+            max_col=ws.max_column,
+        ):
+            for cell in row:
+                cell.alignment = wrap_alignment
 
-                    # Set row height to 15 for all rows so that wrapped text doesn't
-                    # expand row height.
-                    for r in range(1, ws.max_row + 1):
-                        ws.row_dimensions[r].height = 15
+        for r in range(1, ws.max_row + 1):
+            ws.row_dimensions[r].height = 15
 
-                    # Style links
-                    if isinstance(cell.value, str) and cell.value.startswith(
-                        "=HYPERLINK("
-                    ):
-                        cell.font = hyperlink_font
+        for row in ws.iter_rows(
+            min_row=header_row,
+            max_row=ws.max_row,
+            min_col=1,
+            max_col=ws.max_column,
+        ):
+            for cell in row:
+                v = cell.value
+                if isinstance(v, str) and v.startswith("=HYPERLINK("):
+                    cell.font = hyperlink_font
 
-            if sheet_name == "Other Errors":
-                ws.sheet_state = "hidden"
 
+        if sheet_name == "Other Errors":
+            ws.sheet_state = "hidden"
 
 if __name__ == "__main__":
     # Parse command line arguments
