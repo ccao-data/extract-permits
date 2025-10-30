@@ -870,7 +870,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
                 ws.row_dimensions[row[0].row].height = 15
                 for cell in row:
                     # Wrap text with a designated height so that
-                    # it doesn't print into other columns or 
+                    # it doesn't print into other columns or
                     # expand row height.
                     cell.alignment = wrap_alignment
 
