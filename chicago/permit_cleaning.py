@@ -785,7 +785,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "Applicant* [USER21]",
         "Notes [NOTE1]",
         "Matched Keywords",
-        "Auto-updating Validation",
     ]
 
     file_name_combined = os.path.join(
