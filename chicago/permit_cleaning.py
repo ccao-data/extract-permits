@@ -862,7 +862,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
 
             # Apply formatting to all cells
             for row in ws.iter_rows(
-                min_row=header_row,
+                min_row=header_row + 1,
                 max_row=ws.max_row,
                 min_col=1,
                 max_col=ws.max_column,
