@@ -770,7 +770,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "FLAG, EMPTY: Permit Number",
         "FLAG, EMPTY: Note1",
         "Matched Keywords",
-        "Auto-updating Validation"
+        "Auto-updating Validation",
     ]
 
     unhidden_columns = [
@@ -842,10 +842,9 @@ def save_xlsx_files(df, max_rows, file_base_name):
 
         # Style links, since Excel won't do this automatically
         wrap_alignment = openpyxl.styles.Alignment(
-          wrap_text=True,
-          vertical="top"
-          )
-        
+            wrap_text=True, vertical="top"
+        )
+
         hyperlink_font = openpyxl.styles.Font(
             color="0000FF", underline="single"
         )
