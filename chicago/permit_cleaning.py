@@ -770,7 +770,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "FLAG, EMPTY: Permit Number",
         "FLAG, EMPTY: Note1",
         "Matched Keywords",
-        "Auto-updating Validation",
     ]
 
     unhidden_columns = [
