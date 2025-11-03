@@ -33,6 +33,7 @@ import openpyxl
 import openpyxl.styles
 import pandas as pd
 import requests
+from openpyxl.utils import get_column_letter
 from pyathena import connect
 from pyathena.cursor import Cursor
 from pyathena.pandas.util import as_pandas
@@ -304,14 +305,16 @@ def flag_invalid_pins(df, chicago_pin_universe):
     # (not pulling last 4 digits from the end in case there are PINs that are not 14-digits in Chicago permit data)
     df["pin_suffix"] = df["PIN* [PARID]"].astype("string").str[10:]
 
-    # comment for rows with invalid pin
-    df["FLAG COMMENTS"] += df["FLAG, INVALID: PIN* [PARID]"].apply(
-        lambda val: ""
-        if val == 0
-        else "PIN* [PARID] is invalid, see Original PIN for raw form; "
-    )
-    df["FLAG COMMENTS"] += df["FLAG, INVALID: pin_10digit"].apply(
-        lambda val: "" if val == 0 else "10-digit PIN is invalid; "
+    # comment for rows with invalid PINs
+    df["FLAG COMMENTS"] += df.apply(
+        lambda row: "First 10 digits of PIN* [PARID] do not match a valid PIN10; "
+        if row["FLAG, INVALID: pin_10digit"] == 1
+        else (
+            "First 10 digits of PIN* [PARID] match a valid PIN10, but last 4 digits do not match; "
+            if row["FLAG, INVALID: PIN* [PARID]"] == 1
+            else ""
+        ),
+        axis=1,
     )
 
     return df
@@ -731,6 +734,9 @@ def save_xlsx_files(df, max_rows, file_base_name):
     COL_ORDER = [
         "# [LLINE]",
         "Original PIN",
+        "FLAG COMMENTS",
+        "Property Address",
+        "Suggested PINs",
         "PIN* [PARID]",
         "Local Permit No.* [USER28]",
         "Issue Date* [PERMDT]",
@@ -749,7 +755,6 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "Occupy Dt [UDATE1]",
         "Submit Dt* [CERTDATE]",
         "Est Comp Dt [UDATE2]",
-        "FLAG COMMENTS",
         "FLAG, INVALID: PIN* [PARID]",
         "FLAG, INVALID: pin_10digit",
         "FLAG, LENGTH: Applicant Name",
@@ -764,9 +769,23 @@ def save_xlsx_files(df, max_rows, file_base_name):
         "FLAG, EMPTY: Applicant Street Address",
         "FLAG, EMPTY: Permit Number",
         "FLAG, EMPTY: Note1",
+        "Matched Keywords",
+    ]
+
+    unhidden_columns = [
+        "FLAG COMMENTS",
         "Property Address",
         "Suggested PINs",
+        "PIN* [PARID]",
+        "Local Permit No.* [USER28]",
+        "Issue Date* [PERMDT]",
+        "Amount* [AMOUNT]",
+        "Applicant Street Address* [ADDR1]",
+        "Applicant City, State, Zip* [ADDR3]",
+        "Applicant* [USER21]",
+        "Notes [NOTE1]",
         "Matched Keywords",
+        "Auto-updating Validation",
     ]
 
     file_name_combined = os.path.join(
@@ -821,18 +840,46 @@ def save_xlsx_files(df, max_rows, file_base_name):
         )
 
         # Style links, since Excel won't do this automatically
+        wrap_alignment = openpyxl.styles.Alignment(
+            wrap_text=True, vertical="top"
+        )
+
         hyperlink_font = openpyxl.styles.Font(
             color="0000FF", underline="single"
         )
+
         for sheet_name in ("PIN Errors", "Other Errors"):
             ws = writer.sheets[sheet_name]
+            header_row = 1
+
+            # Cache header row values
+            header_values = {
+                col: ws.cell(row=header_row, column=col).value
+                for col in range(1, ws.max_column + 1)
+            }
+
+            # Hide columns not in unhidden_columns
+            for col, header_value in header_values.items():
+                if header_value not in unhidden_columns:
+                    ws.column_dimensions[get_column_letter(col)].hidden = True
+
+            # Apply formatting to all cells
             for row in ws.iter_rows(
-                min_row=2, max_row=ws.max_row, min_col=1, max_col=ws.max_column
+                min_row=header_row + 1,
+                max_row=ws.max_row,
+                min_col=1,
+                max_col=ws.max_column,
             ):
+                ws.row_dimensions[row[0].row].height = 15
                 for cell in row:
-                    if isinstance(cell.value, str) and cell.value.startswith(
-                        "=HYPERLINK("
-                    ):
+                    # Wrap text with a designated height so that
+                    # it doesn't print into other columns or
+                    # expand row height.
+                    cell.alignment = wrap_alignment
+
+                    # Style hyperlink formulas
+                    v = cell.value
+                    if isinstance(v, str) and v.startswith("=HYPERLINK("):
                         cell.font = hyperlink_font
 
 
