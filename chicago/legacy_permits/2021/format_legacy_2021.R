@@ -2,34 +2,10 @@ library(dplyr)
 library(openxlsx)
 library(tidyr)
 
-source("helper.R")
+source("legacy_permits/helper.R")
 
-assessed_raw <- read.xlsx(
-  "2021/2021 manual review processed- JW completed (1).xlsx",
-  sheet = "Assessed"
-) %>%
-  mutate(across(everything(), as.character)) %>%
-  mutate(
-    `Applicant Street Address* [ADDR1]` =
-      paste(STREET_NUMBER, STREET.DIRECTION, STREET_NAME, SUFFIX)
-  ) %>%
-  select(
-    "ID	PIN* [PARID]"            = PIN1,
-    "Local Permit No.* [USER28]" = `PERMIT#`,
-    "Issue Date* [PERMDT]"       = ISSUE_DATE,
-    "Amount* [AMOUNT]"           = REPORTED_COST,
-    "Applicant Street Address* [ADDR1]",
-    "Applicant* [USER21]"        = CONTACT_1_NAME,
-    "Notes [NOTE1]"              = WORK_DESCRIPTION,
-    PIN2, PIN3, PIN4, PIN5, PIN6, PIN7
-  ) %>%
-  mutate(`Applicant City, State, Zip* [ADDR3]` = "Chicago, IL")
-
-# Expand multi-PIN rows
-assessed <- expand_pins(assessed_raw)
-
-need_worked_raw <- read.xlsx(
-  "2021/2021 manual review processed- JW completed (1).xlsx",
+need_worked <- read.xlsx(
+  "legacy_permits/2021/2021 manual review processed.xlsx",
   sheet = "Need worked"
 ) %>%
   mutate(across(everything(), as.character)) %>%
@@ -47,15 +23,14 @@ need_worked_raw <- read.xlsx(
     "Notes [NOTE1]"              = WORK_DESCRIPTION,
     PIN2, PIN3, PIN4, PIN5, PIN6, PIN7
   ) %>%
-  mutate(`Applicant City, State, Zip* [ADDR3]` = "Chicago, IL")
+  mutate(`Applicant City, State, Zip* [ADDR3]` = "Chicago, IL") %>%
+  expand_pins() %>%
+  ensure_columns(column_order)
 
 # Expand multi-PIN rows
 need_worked <- expand_pins(need_worked_raw)
 
-assessed   <- ensure_columns(assessed, column_order)
-need_worked <- ensure_columns(need_worked, column_order)
-
-data <- rbind(assessed, need_worked) %>%
+need_worked <- ensure_columns(need_worked, column_order) %>%
   mutate(
     `ID	PIN* [PARID]` = normalize_pin(`ID	PIN* [PARID]`),
     `Issue Date* [PERMDT]` = as.Date(
@@ -69,7 +44,7 @@ filter(
 )
 
 write.csv(
-  data,
-  "2021/2021permits_processed_legacy.csv",
+  need_worked,
+  "legacy_permits/2021/2021permits_processed_legacy_need_worked.csv",
   row.names = FALSE
 )

@@ -2,13 +2,12 @@ library(dplyr)
 library(openxlsx)
 library(tidyr)
 
-source("helper.R")
+source("legacy_permits/helper.R")
 
-assessed_raw <- read_xlsx_all_char(
-  "2022/2022 City permits for manual review v5processed (005).xlsx",
-  sheet = "Assessed"
+actionable_raw <- read_xlsx_all_char(
+  "legacy_permits/2022/2022 City permits for manual review v5processed (005).xlsx",
+  sheet = "Actionable"
 ) %>%
-  mutate(across(everything(), as.character)) %>%
   select(
     "ID	PIN* [PARID]"                   = PIN1,
     "Local Permit No.* [USER28]"        = Local.Permit.No,
@@ -22,14 +21,13 @@ assessed_raw <- read_xlsx_all_char(
   mutate(`Applicant City, State, Zip* [ADDR3]` = "Chicago, IL")
 
 # Expand multi-PIN rows
-assessed <- expand_pins(assessed_raw)
+actionable <- expand_pins(actionable_raw)
 
-# Read the "Assessed" sheet, everything as character, and rename
-read_worked_raw <- read_xlsx_all_char(
-  "2022/2022 City permits for manual review v5processed (005).xlsx",
+# Read the "actionable" sheet, everything as character, and rename
+need_worked_raw <- read_xlsx_all_char(
+  "legacy_permits/2022/2022 City permits for manual review v5processed (005).xlsx",
   sheet = "Need worked"
 ) %>%
-  mutate(across(everything(), as.character)) %>%
   select(
     "ID	PIN* [PARID]"                   = PIN1,
     "Local Permit No.* [USER28]"        = Local.Permit.No,
@@ -42,12 +40,26 @@ read_worked_raw <- read_xlsx_all_char(
   ) %>%
   mutate(`Applicant City, State, Zip* [ADDR3]` = "Chicago, IL")
 
+need_worked <- expand_pins(need_worked_raw)
+
 # Expand multi-PIN rows
-assessed   <- ensure_columns(assessed, column_order)
+actionable   <- ensure_columns(actionable, column_order)
 need_worked <- ensure_columns(need_worked, column_order)
 
+actionable <- actionable %>%
+  mutate(
+    `ID	PIN* [PARID]` = normalize_pin(`ID	PIN* [PARID]`),
+    `Issue Date* [PERMDT]` = as.Date(
+      as.numeric(`Issue Date* [PERMDT]`),
+      origin = "1899-12-30"
+    )
+  ) %>%
+  # Remove rows without 14 digit pins
+  filter(nchar(`ID	PIN* [PARID]`) == 14)
+
+
 # Final formatting: ensure columns and normalize PIN
-data <- rbind(assessed, need_worked) %>%
+need_worked <- need_worked %>%
   mutate(
     `ID	PIN* [PARID]` = normalize_pin(`ID	PIN* [PARID]`),
     `Issue Date* [PERMDT]` = as.Date(
@@ -59,7 +71,13 @@ data <- rbind(assessed, need_worked) %>%
   filter(nchar(`ID	PIN* [PARID]`) == 14)
 
 write.csv(
-  data,
-  "2022/2022permits_processed_legacy.csv",
+  need_worked,
+  "legacy_permits/2022/2022permits_processed_legacy_need_worked.csv",
   row.names = FALSE
 )
+
+write.csv(
+  actionable,
+  "legacy_permits/2022/2022permits_processed_legacy_actionable.csv",
+  row.names = FALSE
+  )
