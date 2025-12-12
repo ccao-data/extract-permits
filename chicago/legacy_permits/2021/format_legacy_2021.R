@@ -14,7 +14,7 @@ need_worked <- read.xlsx(
       paste(STREET_NUMBER, STREET.DIRECTION, STREET_NAME, SUFFIX)
   ) %>%
   select(
-    "ID PIN* [PARID]"            = PIN1,
+    "PIN* [PARID]"            = PIN1,
     "Local Permit No.* [USER28]" = `PERMIT#`,
     "Issue Date* [PERMDT]"       = ISSUE_DATE,
     "Amount* [AMOUNT]"           = REPORTED_COST,
@@ -27,7 +27,7 @@ need_worked <- read.xlsx(
   expand_pins() %>%
   ensure_columns(column_order) %>%
   mutate(
-    `ID PIN* [PARID]` = normalize_pin(`ID PIN* [PARID]`),
+    `PIN* [PARID]` = normalize_pin(`PIN* [PARID]`),
     `Issue Date* [PERMDT]` = as.Date(
       as.numeric(`Issue Date* [PERMDT]`),
       origin = "1899-12-30"

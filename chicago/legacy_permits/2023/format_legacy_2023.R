@@ -9,7 +9,7 @@ actionable <- read_xlsx_all_char(
   "Actionable"
 ) %>%
   select(
-    "ID PIN* [PARID]"                   = pin1,
+    "PIN* [PARID]"                   = pin1,
     "Local Permit No.* [USER28]"        = `permit#`,
     "Issue Date* [PERMDT]"              = issue_date,
     "Amount* [AMOUNT]"                  = rounded.cost,
@@ -22,7 +22,7 @@ actionable <- read_xlsx_all_char(
   expand_pins() %>%
   ensure_columns(column_order) %>%
   mutate(
-    `ID PIN* [PARID]` = normalize_pin(`ID PIN* [PARID]`),
+    `PIN* [PARID]` = normalize_pin(`PIN* [PARID]`),
     `Issue Date* [PERMDT]` = as.Date(
       as.numeric(`Issue Date* [PERMDT]`),
       origin = "1899-12-30"
@@ -35,7 +35,7 @@ need_worked <- read_xlsx_all_char(
   "Need worked"
 ) %>%
   select(
-    "ID PIN* [PARID]"                   = pin1,
+    "PIN* [PARID]"                   = pin1,
     "Local Permit No.* [USER28]"        = `permit#`,
     "Issue Date* [PERMDT]"              = issue_date,
     "Amount* [AMOUNT]"                  = rounded.cost,
@@ -48,7 +48,7 @@ need_worked <- read_xlsx_all_char(
   expand_pins() %>%
   ensure_columns(column_order) %>%
   mutate(
-    `ID PIN* [PARID]` = normalize_pin(`ID PIN* [PARID]`),
+    `PIN* [PARID]` = normalize_pin(`PIN* [PARID]`),
     `Issue Date* [PERMDT]` = as.Date(
       as.numeric(`Issue Date* [PERMDT]`),
       origin = "1899-12-30"
