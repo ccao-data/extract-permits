@@ -32,6 +32,7 @@ FLAG_FILL_COLORS = {
     ("theme", 7, 0.3999755851924192),
 }
 
+
 def pin_cell_matches_flag(pin_cell) -> bool:
     """Return True if the PIN cell has a background color in FLAG_FILL_COLORS."""
     if pin_cell is None:
@@ -67,9 +68,7 @@ def pin_cell_matches_flag(pin_cell) -> bool:
                 t[1],
                 round(t[2], 6),
             )
-            if isinstance(t, tuple)
-            and len(t) == 3
-            and isinstance(t[2], float)
+            if isinstance(t, tuple) and len(t) == 3 and isinstance(t[2], float)
             else t
             for t in FLAG_FILL_COLORS
         }
