@@ -4,7 +4,7 @@ library(tidyr)
 
 column_order <- c(
   "LLINE",
-  "ID PIN* [PARID]",
+  "PIN* [PARID]",
   "Local Permit No.* [USER28]",
   "Issue Date* [PERMDT]",
   "Desc 1* [DESC1]",
@@ -26,7 +26,9 @@ column_order <- c(
   "Est Comp Dt [UDATE2]"
 )
 
-needed_columns <- c("ID PIN* [PARID]",
+needed_columns <- c(
+  "LLINE",
+  "PIN* [PARID]",
   "Local Permit No.* [USER28]",
   "Issue Date* [PERMDT]",
   "Amount* [AMOUNT]",
@@ -39,7 +41,7 @@ needed_columns <- c("ID PIN* [PARID]",
 expand_pins <- function(df_raw) {
   df_long <- df_raw %>%
     # pivot longer and replicate data for any pin_x which does not have NA value
-    # to the ID PIN* [PARID] column
+    # to the PIN* [PARID] column
     pivot_longer(
       cols = matches("^pin", ignore.case = TRUE),
       names_to  = "pin_col",
@@ -47,7 +49,7 @@ expand_pins <- function(df_raw) {
       values_drop_na = TRUE
     ) %>%
     mutate(
-      `ID PIN* [PARID]` = extra_pin
+      `PIN* [PARID]` = extra_pin
     ) %>%
     select(
       -pin_col,
@@ -62,7 +64,7 @@ expand_pins <- function(df_raw) {
     distinct() %>%
     arrange(
       `Local Permit No.* [USER28]`,
-      `ID PIN* [PARID]`
+      `PIN* [PARID]`
     )
 }
 
@@ -96,7 +98,7 @@ finalize_columns <- function(df, needed_columns) {
   df_flagged <- df %>%
     mutate(
       valid_needed = if_all(all_of(needed_columns), ~ !is.na(.x)),
-      valid_pin = nchar(.data[["ID PIN* [PARID]"]]) == 14,
+      valid_pin = nchar(.data[["PIN* [PARID]"]]) == 14,
       valid_permit = nchar(.data[["Local Permit No.* [USER28]"]]) %in% c(9, 10),
       valid_addr_len = nchar(.data[["Applicant Street Address* [ADDR1]"]]) <= 40,
       valid_note_len = nchar(.data[["Notes [NOTE1]"]]) <= 2000,
