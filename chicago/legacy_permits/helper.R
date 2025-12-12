@@ -3,7 +3,8 @@ library(openxlsx)
 library(tidyr)
 
 column_order <- c(
-  "ID	PIN* [PARID]",
+  "LLINE",
+  "ID PIN* [PARID]",
   "Local Permit No.* [USER28]",
   "Issue Date* [PERMDT]",
   "Desc 1* [DESC1]",
@@ -25,7 +26,7 @@ column_order <- c(
   "Est Comp Dt [UDATE2]"
 )
 
-needed_columns <- c(  "ID	PIN* [PARID]",
+needed_columns <- c("ID PIN* [PARID]",
   "Local Permit No.* [USER28]",
   "Issue Date* [PERMDT]",
   "Amount* [AMOUNT]",
@@ -40,13 +41,13 @@ expand_pins <- function(df_raw) {
     # pivot longer and replicate data for any pin_x which does not have NA value
     # to the ID PIN* [PARID] column
     pivot_longer(
-      cols = starts_with("pin"),
+      cols = matches("^pin", ignore.case = TRUE),
       names_to  = "pin_col",
       values_to = "extra_pin",
       values_drop_na = TRUE
     ) %>%
     mutate(
-      `ID	PIN* [PARID]` = extra_pin
+      `ID PIN* [PARID]` = extra_pin
     ) %>%
     select(
       -pin_col,
@@ -61,7 +62,7 @@ expand_pins <- function(df_raw) {
     distinct() %>%
     arrange(
       `Local Permit No.* [USER28]`,
-      `ID	PIN* [PARID]`
+      `ID PIN* [PARID]`
     )
 }
 
@@ -89,4 +90,39 @@ ensure_columns <- function(df, column_order) {
 read_xlsx_all_char <- function(path, sheet) {
   openxlsx::read.xlsx(path, sheet = sheet) %>%
     dplyr::mutate(across(everything(), as.character))
+}
+finalize_columns <- function(df, needed_columns) {
+
+  df_flagged <- df %>%
+    mutate(
+      valid_needed = if_all(all_of(needed_columns), ~ !is.na(.x)),
+      valid_pin = nchar(.data[["ID PIN* [PARID]"]]) == 14,
+      valid_permit = nchar(.data[["Local Permit No.* [USER28]"]]) %in% c(9, 10),
+      valid_addr_len = nchar(.data[["Applicant Street Address* [ADDR1]"]]) <= 40,
+      valid_note_len = nchar(.data[["Notes [NOTE1]"]]) <= 2000,
+      valid_name_len = nchar(.data[["Applicant* [USER21]"]]) <= 50,
+      valid_amount = .data[["Amount* [AMOUNT]"]] < 2147483647,
+
+      valid_row = valid_needed &
+        valid_pin &
+        valid_permit &
+        valid_addr_len &
+        valid_note_len &
+        valid_name_len
+    )
+
+  upload <- df_flagged %>%
+    filter(valid_row) %>%
+    mutate(LLINE = row_number()) %>%
+    select(-starts_with("valid_"))
+
+  need_review <- df_flagged %>%
+    filter(!valid_row) %>%
+    mutate(LLINE = row_number()) %>%
+    select(-starts_with("valid_"))
+
+  list(
+    upload = upload,
+    need_review = need_review
+  )
 }

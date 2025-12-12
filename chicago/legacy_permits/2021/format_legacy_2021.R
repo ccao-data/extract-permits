@@ -14,7 +14,7 @@ need_worked <- read.xlsx(
       paste(STREET_NUMBER, STREET.DIRECTION, STREET_NAME, SUFFIX)
   ) %>%
   select(
-    "ID	PIN* [PARID]"            = PIN1,
+    "ID PIN* [PARID]"            = PIN1,
     "Local Permit No.* [USER28]" = `PERMIT#`,
     "Issue Date* [PERMDT]"       = ISSUE_DATE,
     "Amount* [AMOUNT]"           = REPORTED_COST,
@@ -25,26 +25,24 @@ need_worked <- read.xlsx(
   ) %>%
   mutate(`Applicant City, State, Zip* [ADDR3]` = "Chicago, IL") %>%
   expand_pins() %>%
-  ensure_columns(column_order)
-
-# Expand multi-PIN rows
-need_worked <- expand_pins(need_worked_raw)
-
-need_worked <- ensure_columns(need_worked, column_order) %>%
+  ensure_columns(column_order) %>%
   mutate(
-    `ID	PIN* [PARID]` = normalize_pin(`ID	PIN* [PARID]`),
+    `ID PIN* [PARID]` = normalize_pin(`ID PIN* [PARID]`),
     `Issue Date* [PERMDT]` = as.Date(
       as.numeric(`Issue Date* [PERMDT]`),
       origin = "1899-12-30"
     )
   ) %>%
-filter(
-  nchar(`ID	PIN* [PARID]`) == 14,
-  if_all(all_of(needed_columns), ~ !is.na(.x))
+  finalize_columns(needed_columns)
+
+write.csv(
+  need_worked$upload,
+  "legacy_permits/2021/2021permits_processed_legacy_need_worked.csv",
+  row.names = FALSE
 )
 
 write.csv(
-  need_worked,
-  "legacy_permits/2021/2021permits_processed_legacy_need_worked.csv",
+  need_worked$need_review,
+  "legacy_permits/2021/2021permits_processed_legacy_need_worked_review.csv",
   row.names = FALSE
 )
