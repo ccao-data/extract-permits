@@ -1,5 +1,7 @@
 import argparse
 import csv
+import os
+from datetime import datetime
 
 import openpyxl
 import pandas as pd
@@ -164,13 +166,17 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
         flagged_rows.append(new_row)
 
     df_flagged_only = pd.DataFrame(flagged_rows)
+    # Create a new folder with the current date
+    date_str = datetime.now().strftime("%Y%m%d")
+    output_folder = f"files_reviewed_and_cleaned_for_smartfile_{date_str}"
+    os.makedirs(output_folder, exist_ok=True)
 
     out = finalize_columns(df_flagged_only, filled_columns)
     upload_df = out["upload"].copy()
     need_review_df = out["need_review"].copy()
 
     # Write need_review as a single CSV
-    need_review_path = file_path.replace(".xlsx", "_need_review.csv")
+    need_review_path = os.path.join(output_folder, "need_review.csv")
     need_review_df = need_review_df.reindex(columns=REQUIRED_COLS)
     need_review_df["LLINE"] = range(1, len(need_review_df) + 1)
     need_review_df.to_csv(need_review_path, index=False, encoding="utf-8")
@@ -185,26 +191,31 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
         # Ensure column order
         batch = batch.reindex(columns=REQUIRED_COLS)
 
-        for row in batch.itertuples(index=False, name=None):
-            upload_writer.writerow(list(row))
+        upload_batch_path = os.path.join(
+            output_folder, f"upload_batch_{batch_number}.csv"
+        )
+        with open(
+            upload_batch_path, "w", newline="", encoding="utf-8"
+        ) as batch_file:
+            batch_writer = csv.writer(batch_file)
+            batch_writer.writerow(REQUIRED_COLS)
+            for row in batch.itertuples(index=False, name=None):
+                batch_writer.writerow(list(row))
 
+        print(f"Upload batch saved to: {upload_batch_path}")
         rows_in_batch += len(batch)
 
         if start + batch_size < len(upload_df):
-            upload_handle.close()
             batch_number += 1
             rows_in_batch = 0
-            upload_writer, upload_handle, last_upload_path = new_upload_batch()
-
-    upload_handle.close()
 
     # Remove flagged rows from original XLSX and save copy for re-review
     removed_path = remove_flagged_rows_from_original_xlsx(file_path)
-    print(f"Workbook with flagged rows removed saved to: {removed_path}")
-
-    print("\nProcessing complete.")
-    print(f"Upload batches created. Last batch: {last_upload_path}")
-    print(f"Total upload rows written: {len(upload_df)}")
+    cleaned_xlsx_path = os.path.join(
+        output_folder, "cleaned_flagged_rows_removed.xlsx"
+    )
+    os.rename(removed_path, cleaned_xlsx_path)
+    print(f"Workbook with flagged rows removed saved to: {cleaned_xlsx_path}")
 
 
 if __name__ == "__main__":
