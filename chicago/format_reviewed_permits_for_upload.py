@@ -86,9 +86,7 @@ def remove_flagged_rows_from_original_xlsx(file_path: str) -> str:
     # Determine Excel row numbers to delete
     rows_to_delete = []
     for r in range(2, ws.max_row + 1):
-        pin_cell = ws.cell(
-            row=r, column=pin_idx + 1
-        )
+        pin_cell = ws.cell(row=r, column=pin_idx + 1)
         if pin_cell_matches_flag(pin_cell):
             rows_to_delete.append(r)
 
@@ -99,6 +97,7 @@ def remove_flagged_rows_from_original_xlsx(file_path: str) -> str:
     out_path = file_path.replace(".xlsx", "_flagged_rows_removed.xlsx")
     wb.save(out_path)
     return out_path
+
 
 def format_reviewed_permits_for_upload(file_path: str) -> None:
     wb = openpyxl.load_workbook(file_path, data_only=True)
