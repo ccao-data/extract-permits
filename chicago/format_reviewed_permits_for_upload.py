@@ -4,6 +4,7 @@ import csv
 import openpyxl
 import pandas as pd
 
+# Helper function that can be factored out for other scripts
 from helper import (
     REQUIRED_COLS,
     filled_columns,
@@ -14,6 +15,8 @@ from helper import (
 FLAG_FILL_COLORS = {
     "FFFFFF00",  # yellow (ARGB)
     "FFFFC000",  # orange (ARGB)
+    # For some reason, one color is not recognized with the hex, but
+    # only with the theme value.
     ("theme", 7, 0.3999755851924192),
 }
 
@@ -85,12 +88,12 @@ def remove_flagged_rows_from_original_xlsx(file_path: str) -> str:
             "Column 'PIN* [PARID]' not found in header row of 'PIN Errors'."
         )
 
-    # Determine Excel row numbers to delete (skip header row=1)
+    # Determine Excel row numbers to delete
     rows_to_delete = []
     for r in range(2, ws.max_row + 1):
         pin_cell = ws.cell(
             row=r, column=pin_idx + 1
-        )  # openpyxl cols are 1-indexed
+        )
         if pin_cell_matches_flag(pin_cell):
             rows_to_delete.append(r)
 
