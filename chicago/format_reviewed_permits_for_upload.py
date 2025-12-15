@@ -2,29 +2,14 @@ import argparse
 import csv
 
 import openpyxl
+import pandas as pd
 
-# Ordered column output for final CSV upload
-REQUIRED_COLS = [
-    "LLINE",
-    "PIN* [PARID]",
-    "Local Permit No.* [USER28]",
-    "Issue Date* [PERMDT]",
-    "Desc 1* [DESC1]",
-    "Desc 2 Code 1 [USER6]",
-    "Desc 2 Code 2 [USER7]",
-    "Desc 2 Code 3 [USER8]",
-    "Amount* [AMOUNT]",
-    "Assessable [IS_ASSESS]",
-    "Applicant Street Address* [ADDR1]",
-    "Applicant Address 2 [ADDR2]",
-    "Applicant City, State, Zip* [ADDR3]",
-    "Contact Phone* [PHONE]",
-    "Applicant* [USER21]",
-    "Notes [NOTE1]",
-    "Occupy Dt [UDATE1]",
-    "Submit Dt* [CERTDATE]",
-    "Est Comp Dt [UDATE2]",
-]
+from helper import (
+    REQUIRED_COLS,
+    filled_columns,
+    finalize_columns,
+    normalize_pin,
+)
 
 FLAG_FILL_COLORS = {
     "FFFFFF00",  # yellow (ARGB)
@@ -51,7 +36,7 @@ def pin_cell_matches_flag(pin_cell) -> bool:
         if len(val) == 8 and val[2:] in FLAG_FILL_COLORS:
             return True
 
-    # 2) Theme-based fills (there is one color which is theme-based)
+    # Theme-based fills (there is one color which is theme-based)
     if getattr(fg, "type", None) == "theme":
         theme = getattr(fg, "theme", None)
         tint = getattr(fg, "tint", None)
@@ -91,12 +76,6 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
     header_index = {col: i for i, col in enumerate(original_header)}
     pin_idx = header_index.get("PIN* [PARID]")
 
-    # Store file which doesn't match flag colors
-    no_upload_path = file_path.replace(".xlsx", "_no_upload.csv")
-    f_no = open(no_upload_path, "w", newline="", encoding="utf-8")
-    no_writer = csv.writer(f_no)
-    no_writer.writerow(REQUIRED_COLS)
-
     # Upload batching setup
     batch_size = 250
     batch_number = 1
@@ -115,55 +94,89 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
 
     upload_writer, upload_handle, last_upload_path = new_upload_batch()
 
-    lline_idx = REQUIRED_COLS.index("LLINE")
+    # Only keep rows where the PIN cell background matches the flag colors
+    flagged_rows = []
 
-    # Process each row
     for row_vals, row_cells in zip(rows_values[1:], rows_cells[1:]):
         row_vals = list(row_vals)
-
-        # Build row with REQUIRED_COLS only
-        new_row = []
-        for col in REQUIRED_COLS:
-            idx = header_index.get(col)
-            if idx is not None and idx < len(row_vals):
-                val = row_vals[idx]
-                new_row.append("" if val is None else val)
-            else:
-                new_row.append("")
 
         # Extract PIN background cell
         pin_cell = None
         if pin_idx is not None and pin_idx < len(row_cells):
             pin_cell = row_cells[pin_idx]
 
-        # UPLOAD if background matches; NO_UPLOAD if it doesn't
-        if pin_cell_matches_flag(pin_cell):
-            new_row[lline_idx] = current_lline
-            upload_writer.writerow(new_row)
-            current_lline += 1
-            rows_in_batch += 1
+        if not pin_cell_matches_flag(pin_cell):
+            continue
 
-            if rows_in_batch >= batch_size:
-                upload_handle.close()
-                batch_number += 1
-                rows_in_batch = 0
-                upload_writer, upload_handle, last_upload_path = (
-                    new_upload_batch()
-                )
-        else:
-            no_writer.writerow(new_row)
+        # Build row with REQUIRED_COLS only
+        new_row = {}
+        for col in REQUIRED_COLS:
+            if col == "LLINE":
+                continue
+            idx = header_index.get(col)
+            if idx is not None and idx < len(row_vals):
+                val = row_vals[idx]
+                new_row[col] = "" if val is None else val
+            else:
+                new_row[col] = ""
+
+        # Normalize PIN for upload processing
+        if "PIN* [PARID]" in new_row:
+            new_row["PIN* [PARID]"] = normalize_pin(
+                str(new_row["PIN* [PARID]"])
+            )
+
+        flagged_rows.append(new_row)
+
+    # Validate + return only upload rows
+    if not flagged_rows:
+        upload_handle.close()
+        print("No flagged PIN rows found (nothing to upload).")
+        return
+
+    df_flagged_only = pd.DataFrame(flagged_rows)
+
+    out = finalize_columns(df_flagged_only, filled_columns)
+    upload_df = out["upload"].copy()
+    need_review_df = out["need_review"].copy()
+
+    # Write need_review as a single CSV
+    need_review_path = file_path.replace(".xlsx", "_need_review.csv")
+    need_review_df = need_review_df.reindex(columns=REQUIRED_COLS)
+    need_review_df["LLINE"] = range(1, len(need_review_df) + 1)
+    need_review_df.to_csv(need_review_path, index=False, encoding="utf-8")
+    print(f"Need-review CSV saved to: {need_review_path}")
+    print(f"Total need-review rows written: {len(need_review_df)}")
+
+    # Write upload rows in batches, with LLINE reset per batch
+    for start in range(0, len(upload_df), batch_size):
+        batch = upload_df.iloc[start : start + batch_size].copy()
+        batch["LLINE"] = range(1, len(batch) + 1)
+
+        # Ensure column order
+        batch = batch.reindex(columns=REQUIRED_COLS)
+
+        for row in batch.itertuples(index=False, name=None):
+            upload_writer.writerow(list(row))
+
+        rows_in_batch += len(batch)
+
+        if start + batch_size < len(upload_df):
+            upload_handle.close()
+            batch_number += 1
+            rows_in_batch = 0
+            upload_writer, upload_handle, last_upload_path = new_upload_batch()
 
     upload_handle.close()
-    f_no.close()
 
     print("\nProcessing complete.")
     print(f"Upload batches created. Last batch: {last_upload_path}")
-    print(f"No-upload CSV saved to: {no_upload_path}")
+    print(f"Total upload rows written: {len(upload_df)}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Export PIN Errors sheet into upload and no-upload CSVs."
+        description="Export flagged PIN Errors rows (only) into upload CSV batches."
     )
     parser.add_argument("file_path", help="Path to the Excel file")
     args = parser.parse_args()
