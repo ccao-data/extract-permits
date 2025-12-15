@@ -27,7 +27,6 @@ column_order <- c(
 )
 
 needed_columns <- c(
-  "LLINE",
   "PIN* [PARID]",
   "Local Permit No.* [USER28]",
   "Issue Date* [PERMDT]",
@@ -39,34 +38,26 @@ needed_columns <- c(
 )
 
 expand_pins <- function(df_raw) {
+  pin_cols <- names(df_raw)[grepl("^PIN\\d+$", names(df_raw), ignore.case = TRUE)]
+
   df_long <- df_raw %>%
-    # pivot longer and replicate data for any pin_x which does not have NA value
-    # to the PIN* [PARID] column
     pivot_longer(
-      cols = matches("^pin", ignore.case = TRUE),
+      cols = all_of(pin_cols),
       names_to  = "pin_col",
       values_to = "extra_pin",
       values_drop_na = TRUE
     ) %>%
-    mutate(
-      `PIN* [PARID]` = extra_pin
-    ) %>%
-    select(
-      -pin_col,
-      -extra_pin
-    )
+    mutate(`PIN* [PARID]` = extra_pin) %>%
+    select(-pin_col, -extra_pin)
 
-  # Stack the original pin1 rows with the extra-pin rows
   bind_rows(
     df_long,
-    df_raw %>% select(-starts_with("pin"))
+    df_raw %>% select(-all_of(pin_cols))
   ) %>%
     distinct() %>%
-    arrange(
-      `Local Permit No.* [USER28]`,
-      `PIN* [PARID]`
-    )
+    arrange(`Local Permit No.* [USER28]`, `PIN* [PARID]`)
 }
+
 
 
 normalize_pin <- function(pin_vec) {

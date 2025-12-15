@@ -4,7 +4,7 @@ library(tidyr)
 
 source("legacy_permits/helper.R")
 
-actionable_raw <- read_xlsx_all_char(
+actionable <- read_xlsx_all_char(
   "legacy_permits/2022/2022 City permits for manual review v5processed (005).xlsx",
   sheet = "Actionable"
 ) %>%
@@ -45,7 +45,7 @@ need_worked <- read_xlsx_all_char(
     PIN2, PIN3, PIN4, PIN5, PIN6, PIN7
   ) %>%
   mutate(`Applicant City, State, Zip* [ADDR3]` = "Chicago, IL") %>%
-    expand_pins() %>%
+  expand_pins() %>%
   ensure_columns(column_order) %>%
   mutate(
     `PIN* [PARID]` = normalize_pin(`PIN* [PARID]`),
@@ -58,7 +58,7 @@ need_worked <- read_xlsx_all_char(
 
 write.csv(
   need_worked$upload,
-  "legacy_permits/2022/2022permits_processed_legacy_need_worked_review.csv",
+  "legacy_permits/2022/2022permits_processed_legacy_need_worked_upload.csv",
   row.names = FALSE
 )
 

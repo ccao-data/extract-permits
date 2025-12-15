@@ -37,7 +37,7 @@ need_worked <- read.xlsx(
 
 write.csv(
   need_worked$upload,
-  "legacy_permits/2021/2021permits_processed_legacy_need_worked.csv",
+  "legacy_permits/2021/2021permits_processed_legacy_need_worked_upload.csv",
   row.names = FALSE
 )
 

@@ -42,9 +42,13 @@ need_worked <- read_xlsx_all_char(
     "Applicant Street Address* [ADDR1]" = address,
     "Applicant* [USER21]"               = contact_1_name,
     "Notes [NOTE1]"                     = notes,
+    "Reinstated"          = Reinstated.permit,
     pin2, pin3, pin4, pin5, pin6, pin7, pin8, pin9, pin10
   ) %>%
-  mutate(`Applicant City, State, Zip* [ADDR3]` = "Chicago, IL") %>%
+  mutate(`Applicant City, State, Zip* [ADDR3]` = "Chicago, IL",
+  # if reinstated is not NA replace the value for Notes with it
+  `Notes [NOTE1]` = ifelse(!is.na(`Reinstated`), `Reinstated`, `Notes [NOTE1]`)) %>%
+  select(-c(`Reinstated`)) %>%
   expand_pins() %>%
   ensure_columns(column_order) %>%
   mutate(
@@ -58,7 +62,7 @@ need_worked <- read_xlsx_all_char(
 
 write.csv(
   need_worked$upload,
-  "legacy_permits/2023/2023permits_processed_legacy_need_worked.csv",
+  "legacy_permits/2023/2023permits_processed_legacy_need_worked_upload.csv",
   row.names = FALSE
 )
 
@@ -70,7 +74,7 @@ write.csv(
 
 write.csv(
   actionable$upload,
-  "legacy_permits/2023/2023permits_processed_legacy_actionable.csv",
+  "legacy_permits/2023/2023permits_processed_legacy_actionable_upload.csv",
   row.names = FALSE
 )
 
