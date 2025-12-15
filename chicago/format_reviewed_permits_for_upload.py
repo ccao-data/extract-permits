@@ -83,11 +83,6 @@ def remove_flagged_rows_from_original_xlsx(file_path: str) -> str:
     header_index = {col: i for i, col in enumerate(original_header)}
     pin_idx = header_index.get("PIN* [PARID]")
 
-    if pin_idx is None:
-        raise ValueError(
-            "Column 'PIN* [PARID]' not found in header row of 'PIN Errors'."
-        )
-
     # Determine Excel row numbers to delete
     rows_to_delete = []
     for r in range(2, ws.max_row + 1):
@@ -104,7 +99,6 @@ def remove_flagged_rows_from_original_xlsx(file_path: str) -> str:
     out_path = file_path.replace(".xlsx", "_flagged_rows_removed.xlsx")
     wb.save(out_path)
     return out_path
-
 
 def format_reviewed_permits_for_upload(file_path: str) -> None:
     wb = openpyxl.load_workbook(file_path, data_only=True)
