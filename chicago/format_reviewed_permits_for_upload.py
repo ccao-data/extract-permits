@@ -64,6 +64,45 @@ def pin_cell_matches_flag(pin_cell) -> bool:
     return False
 
 
+def remove_flagged_rows_from_original_xlsx(file_path: str) -> str:
+    """
+    Remove any rows in the 'PIN Errors' sheet whose 'PIN* [PARID]' cell fill color
+    matches FLAG_FILL_COLORS, and save a copy of the workbook preserving formatting.
+    """
+    wb = openpyxl.load_workbook(file_path, data_only=False)
+    ws = wb["PIN Errors"]
+
+    # Read header row directly from worksheet cells
+    header_cells = next(ws.iter_rows(min_row=1, max_row=1, values_only=False))
+    original_header = [
+        c.value if c.value is not None else "" for c in header_cells
+    ]
+    header_index = {col: i for i, col in enumerate(original_header)}
+    pin_idx = header_index.get("PIN* [PARID]")
+
+    if pin_idx is None:
+        raise ValueError(
+            "Column 'PIN* [PARID]' not found in header row of 'PIN Errors'."
+        )
+
+    # Determine Excel row numbers to delete (skip header row=1)
+    rows_to_delete = []
+    for r in range(2, ws.max_row + 1):
+        pin_cell = ws.cell(
+            row=r, column=pin_idx + 1
+        )  # openpyxl cols are 1-indexed
+        if pin_cell_matches_flag(pin_cell):
+            rows_to_delete.append(r)
+
+    # Delete bottom-up so row indices don't shift
+    for r in reversed(rows_to_delete):
+        ws.delete_rows(r, 1)
+
+    out_path = file_path.replace(".xlsx", "_flagged_rows_removed.xlsx")
+    wb.save(out_path)
+    return out_path
+
+
 def format_reviewed_permits_for_upload(file_path: str) -> None:
     wb = openpyxl.load_workbook(file_path, data_only=True)
     ws = wb["PIN Errors"]
@@ -128,12 +167,6 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
 
         flagged_rows.append(new_row)
 
-    # Validate + return only upload rows
-    if not flagged_rows:
-        upload_handle.close()
-        print("No flagged PIN rows found (nothing to upload).")
-        return
-
     df_flagged_only = pd.DataFrame(flagged_rows)
 
     out = finalize_columns(df_flagged_only, filled_columns)
@@ -169,6 +202,10 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
 
     upload_handle.close()
 
+    # Remove flagged rows from original XLSX and save copy for re-review
+    removed_path = remove_flagged_rows_from_original_xlsx(file_path)
+    print(f"Workbook with flagged rows removed saved to: {removed_path}")
+
     print("\nProcessing complete.")
     print(f"Upload batches created. Last batch: {last_upload_path}")
     print(f"Total upload rows written: {len(upload_df)}")
@@ -176,7 +213,7 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Export flagged PIN Errors rows (only) into upload CSV batches."
+        description="Export flagged PIN Errors rows (only) into upload CSV batches, and save an XLSX copy with flagged rows removed."
     )
     parser.add_argument("file_path", help="Path to the Excel file")
     args = parser.parse_args()
