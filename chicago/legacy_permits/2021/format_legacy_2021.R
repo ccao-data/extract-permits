@@ -4,11 +4,10 @@ library(tidyr)
 
 source("helper.R")
 
-need_worked <- read.xlsx(
+need_worked <- read_xlsx_all_char(
   "legacy_permits/2021/2021 manual review processed.xlsx",
   sheet = "Need worked"
 ) %>%
-  mutate(across(everything(), as.character)) %>%
   mutate(
     `Applicant Street Address* [ADDR1]` =
       paste(STREET_NUMBER, STREET.DIRECTION, STREET_NAME, SUFFIX)
