@@ -236,6 +236,9 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
         df_flagged_only, filled_columns, chicago_pin_universe
     )
     upload_df = out["upload"].copy()
+    upload_df["Issue Date* [PERMDT]"] = pd.to_datetime(
+        upload_df["Issue Date* [PERMDT]"], errors="coerce"
+    ).dt.strftime("%m/%d/%Y")
     need_review_df = out["need_review"].copy()
 
     # Write need_review as a single CSV
