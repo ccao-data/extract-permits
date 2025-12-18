@@ -2,7 +2,7 @@ library(dplyr)
 library(openxlsx)
 library(tidyr)
 
-source("legacy_permits/helper.R")
+source("helper.R")
 
 need_worked <- read.xlsx(
   "legacy_permits/2021/2021 manual review processed.xlsx",
