@@ -16,7 +16,6 @@ column_order <- c(
   "Assessable [IS_ASSESS]",
   "Applicant Street Address* [ADDR1]",
   "Applicant Address 2 [ADDR2]",
-  "SUFFIX",
   "Applicant City, State, Zip* [ADDR3]",
   "Contact Phone* [PHONE]",
   "Applicant* [USER21]",
