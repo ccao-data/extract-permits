@@ -65,6 +65,7 @@ def year_from_date_string(date_str: str) -> str:
 
     return str(datetime.strptime(date_str, "%Y-%m-%d").year)
 
+
 def get_pin_cache_filename(start_date: str, end_date: str) -> str:
     """Given start and end dates, return the name of a file that we can use to
     cache distinct PINs between the years represented by the two dates"""
@@ -106,6 +107,7 @@ def pull_existing_pins_from_athena(
 
     return chicago_pin_universe
 
+
 def finalize_columns(
     df: pd.DataFrame,
     filled_columns: list[str],
@@ -135,7 +137,10 @@ def finalize_columns(
         df_flagged["Applicant* [USER21]"].astype(str).str.len() <= 50
     )
 
-    df_flagged["valid_amount"] = pd.to_numeric(df_flagged["Amount* [AMOUNT]"], errors="coerce") < 2147483647
+    df_flagged["valid_amount"] = (
+        pd.to_numeric(df_flagged["Amount* [AMOUNT]"], errors="coerce")
+        < 2147483647
+    )
 
     df_flagged["pin14_in_data"] = df_flagged["PIN* [PARID]"].isin(
         chicago_pin_universe["pin"]

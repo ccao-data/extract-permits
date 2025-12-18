@@ -130,7 +130,9 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
     issue_col = "Issue Date* [PERMDT]"
     issue_idx = header_index.get(issue_col)
     if issue_idx is None:
-        raise ValueError(f"Column '{issue_col}' not found in 'PIN Errors' sheet.")
+        raise ValueError(
+            f"Column '{issue_col}' not found in 'PIN Errors' sheet."
+        )
 
     issue_dates = []
     for row in rows_values[1:]:
@@ -148,7 +150,9 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
         issue_dates.append(dt)
 
     if not issue_dates:
-        raise ValueError("No valid Issue Date values found to derive date bounds.")
+        raise ValueError(
+            "No valid Issue Date values found to derive date bounds."
+        )
 
     start_date = min(issue_dates).strftime("%Y-%m-%d")
     end_date = max(issue_dates).strftime("%Y-%m-%d")
@@ -228,7 +232,9 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
     output_folder = f"files_reviewed_and_cleaned_for_smartfile_{date_str}"
     os.makedirs(output_folder, exist_ok=True)
 
-    out = finalize_columns(df_flagged_only, filled_columns, chicago_pin_universe)
+    out = finalize_columns(
+        df_flagged_only, filled_columns, chicago_pin_universe
+    )
     upload_df = out["upload"].copy()
     need_review_df = out["need_review"].copy()
 
