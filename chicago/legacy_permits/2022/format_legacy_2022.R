@@ -18,7 +18,7 @@ actionable <- read_xlsx_all_char(
     "Notes [NOTE1]"                     = Notes,
     PIN2, PIN3, PIN4, PIN5, PIN6, PIN7
   ) %>%
-  mutate(`Applicant City, State, Zip* [ADDR3]` = "Chicago, IL") %>%
+  mutate(`Applicant City, State, Zip* [ADDR3]` = "CHICAGO, IL") %>%
   expand_pins() %>%
   ensure_columns(column_order) %>%
   mutate(
