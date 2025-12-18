@@ -9,7 +9,6 @@ column_order <- c(
   "Issue Date* [PERMDT]",
   "Desc 1* [DESC1]",
   "Desc 2 Code 1 [USER6]",
-  "Desc 2 Code 1 [USER6]2",
   "Desc 2 Code 2 [USER7]",
   "Desc 2 Code 3 [USER8]",
   "Amount* [AMOUNT]",
