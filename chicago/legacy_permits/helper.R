@@ -2,6 +2,8 @@ library(dplyr)
 library(openxlsx)
 library(tidyr)
 
+options(scipen = 999)
+
 column_order <- c(
   "LLINE",
   "PIN* [PARID]",
