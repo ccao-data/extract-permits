@@ -99,8 +99,5 @@ def finalize_columns(
 
     need_review = df_flagged[~df_flagged["valid_row"]].copy()
     need_review["LLINE"] = range(1, len(need_review) + 1)
-    need_review = need_review.loc[
-        :, ~need_review.columns.str.startswith("valid_")
-    ]
 
     return {"upload": upload, "need_review": need_review}
