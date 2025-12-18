@@ -111,8 +111,7 @@ finalize_columns <- function(df, needed_columns) {
 
   need_review <- df_flagged %>%
     filter(!valid_row) %>%
-    mutate(LLINE = row_number()) %>%
-    select(-starts_with("valid_"))
+    mutate(LLINE = row_number())
 
   list(
     upload = upload,
