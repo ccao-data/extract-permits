@@ -163,4 +163,3 @@ cython_debug/
 chicago/files_for_*
 chicago/chicago_pin_universe*.csv
 
-renv/library/
