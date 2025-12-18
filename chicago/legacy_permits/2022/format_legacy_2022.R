@@ -2,10 +2,10 @@ library(dplyr)
 library(openxlsx)
 library(tidyr)
 
-source("legacy_permits/helper.R")
+source("helper.R")
 
 actionable <- read_xlsx_all_char(
-  "legacy_permits/2022/2022 City permits for manual review v5processed (005).xlsx",
+  "2022/2022 City permits for manual review v5processed (005).xlsx",
   sheet = "Actionable"
 ) %>%
   select(
@@ -31,7 +31,7 @@ actionable <- read_xlsx_all_char(
   finalize_columns(needed_columns)
 
 need_worked <- read_xlsx_all_char(
-  "legacy_permits/2022/2022 City permits for manual review v5processed (005).xlsx",
+  "2022/2022 City permits for manual review v5processed (005).xlsx",
   sheet = "Need worked"
 ) %>%
   select(
@@ -58,24 +58,24 @@ need_worked <- read_xlsx_all_char(
 
 write.csv(
   need_worked$upload,
-  "legacy_permits/2022/2022permits_processed_legacy_need_worked_upload.csv",
+  "2022/2022permits_processed_legacy_need_worked_upload.csv",
   row.names = FALSE
 )
 
 write.csv(
   need_worked$need_review,
-  "legacy_permits/2022/2022permits_processed_legacy_need_worked_review.csv",
+  "2022/2022permits_processed_legacy_need_worked_review.csv",
   row.names = FALSE
 )
 
 write.csv(
   actionable$upload,
-  "legacy_permits/2022/2022permits_processed_legacy_actionable.csv",
+  "2022/2022permits_processed_legacy_actionable.csv",
   row.names = FALSE
   )
 
 write.csv(
   actionable$need_review,
-  "legacy_permits/2022/2022permits_processed_legacy_actionable_review.csv",
+  "2022/2022permits_processed_legacy_actionable_review.csv",
   row.names = FALSE
   )

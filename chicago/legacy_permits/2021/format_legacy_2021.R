@@ -5,7 +5,7 @@ library(tidyr)
 source("helper.R")
 
 need_worked <- read_xlsx_all_char(
-  "legacy_permits/2021/2021 manual review processed.xlsx",
+  "2021/2021 manual review processed.xlsx",
   sheet = "Need worked"
 ) %>%
   mutate(
@@ -36,12 +36,12 @@ need_worked <- read_xlsx_all_char(
 
 write.csv(
   need_worked$upload,
-  "legacy_permits/2021/2021permits_processed_legacy_need_worked_upload.csv",
+  "2021/2021permits_processed_legacy_need_worked_upload.csv",
   row.names = FALSE
 )
 
 write.csv(
   need_worked$need_review,
-  "legacy_permits/2021/2021permits_processed_legacy_need_worked_review.csv",
+  "2021/2021permits_processed_legacy_need_worked_review.csv",
   row.names = FALSE
 )

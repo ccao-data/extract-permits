@@ -142,9 +142,6 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
         if pin_idx is not None and pin_idx < len(row_cells):
             pin_cell = row_cells[pin_idx]
 
-        if not pin_cell_matches_flag(pin_cell):
-            continue
-
         # Build row with REQUIRED_COLS only
         new_row = {}
         for col in REQUIRED_COLS:
@@ -167,7 +164,7 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
 
     df_flagged_only = pd.DataFrame(flagged_rows)
     # Create a new folder with the current date
-    date_str = datetime.now().strftime("%Y%m%d")
+    date_str = datetime.now().strftime("%m/%d/%Y")
     output_folder = f"files_reviewed_and_cleaned_for_smartfile_{date_str}"
     os.makedirs(output_folder, exist_ok=True)
 
