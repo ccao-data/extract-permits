@@ -45,7 +45,7 @@ need_worked <- read_xlsx_all_char(
     "Reinstated"          = Reinstated.permit,
     pin2, pin3, pin4, pin5, pin6, pin7, pin8, pin9, pin10
   ) %>%
-  mutate(`Applicant City, State, Zip* [ADDR3]` = "Chicago, IL",
+  mutate(`Applicant City, State, Zip* [ADDR3]` = "CHICAGO, IL",
   # if reinstated is not NA replace the value for Notes with it
   `Notes [NOTE1]` = ifelse(!is.na(`Reinstated`), `Reinstated`, `Notes [NOTE1]`)) %>%
   select(-c(`Reinstated`)) %>%
