@@ -89,7 +89,7 @@ finalize_columns <- function(df, needed_columns) {
   df_flagged <- df %>%
     mutate(
       valid_needed = if_all(all_of(needed_columns), ~ !is.na(.x)),
-      valid_pin = nchar(.data[["PIN* [PARID]"]]) == 14,
+      valid_pin = nchar(.data[["PIN* [PARID]"]]) == 14 & grepl("^\\d{14}$", .data[["PIN* [PARID]"]]),
       valid_permit = nchar(.data[["Local Permit No.* [USER28]"]]) %in% c(9, 10),
       valid_addr_len = nchar(.data[["Applicant Street Address* [ADDR1]"]]) <= 40,
       valid_note_len = nchar(.data[["Notes [NOTE1]"]]) <= 2000,
