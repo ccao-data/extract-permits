@@ -23,7 +23,7 @@ need_worked <- read.xlsx(
     "Notes [NOTE1]"              = WORK_DESCRIPTION,
     PIN2, PIN3, PIN4, PIN5, PIN6, PIN7
   ) %>%
-  mutate(`Applicant City, State, Zip* [ADDR3]` = "Chicago, IL") %>%
+  mutate(`Applicant City, State, Zip* [ADDR3]` = "CHICAGO, IL") %>%
   expand_pins() %>%
   ensure_columns(column_order) %>%
   mutate(
