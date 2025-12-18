@@ -53,9 +53,9 @@ need_worked <- read_xlsx_all_char(
   ensure_columns(column_order) %>%
   mutate(
     `PIN* [PARID]` = normalize_pin(`PIN* [PARID]`),
-    `Issue Date* [PERMDT]` = as.Date(
-      as.numeric(`Issue Date* [PERMDT]`),
-      origin = "1899-12-30"
+    `Issue Date* [PERMDT]` = format(
+      as.Date(as.numeric(`Issue Date* [PERMDT]`), origin = "1899-12-30"),
+      "%m/%d/%Y"
     )
   ) %>%
   finalize_columns(needed_columns)
