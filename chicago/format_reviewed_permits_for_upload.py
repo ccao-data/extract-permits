@@ -276,11 +276,11 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
             rows_in_batch = 0
 
     # Remove flagged rows from original XLSX and save copy for re-review
-    removed_path = remove_flagged_rows_from_original_xlsx(file_path)
     cleaned_xlsx_path = os.path.join(
         output_folder, "cleaned_flagged_rows_removed.xlsx"
     )
-    os.rename(removed_path, cleaned_xlsx_path)
+    remove_flagged_rows_from_original_xlsx(file_path, cleaned_xlsx_path)
+
     print(f"Workbook with flagged rows removed saved to: {cleaned_xlsx_path}")
 
 
