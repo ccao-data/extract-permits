@@ -138,8 +138,8 @@ def finalize_columns(
     )
 
     df_flagged["valid_amount"] = (
-        pd.to_numeric(df_flagged["Amount* [AMOUNT]"], errors="coerce")
-        < 2147483647
+        pd.to_numeric(df_flagged["Amount* [AMOUNT]"], errors="coerce").notnull()
+        & (pd.to_numeric(df_flagged["Amount* [AMOUNT]"], errors="coerce") < 2147483647)
     )
 
     df_flagged["pin14_in_data"] = df_flagged["PIN* [PARID]"].isin(
