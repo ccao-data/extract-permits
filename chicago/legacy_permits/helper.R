@@ -94,8 +94,11 @@ finalize_columns <- function(df, needed_columns) {
       valid_addr_len = nchar(.data[["Applicant Street Address* [ADDR1]"]]) <= 40,
       valid_note_len = nchar(.data[["Notes [NOTE1]"]]) <= 2000,
       valid_name_len = nchar(.data[["Applicant* [USER21]"]]) <= 50,
-      valid_amount = .data[["Amount* [AMOUNT]"]] < 2147483647,
-
+      valid_amount =
+        suppressWarnings(
+          as.numeric(.data[["Amount* [AMOUNT]"]]) < 2147483647
+        ),
+        
       valid_row = valid_needed &
         valid_pin &
         valid_permit &
