@@ -4,6 +4,12 @@ library(tidyr)
 
 source("helper.R")
 
+crosswalk <- read.xlsx("crosswalk.xlsx") %>%
+  filter(year == '2023') %>%
+  select(meta_pin, original_pin) %>%
+  mutate(meta_pin = as.character(meta_pin),
+         original_pin = as.character(original_pin))
+
 actionable <- read_xlsx_all_char(
   "2023/2023permits_processed_2.xlsx",
   "Actionable"
@@ -28,6 +34,9 @@ actionable <- read_xlsx_all_char(
       origin = "1899-12-30"
     )
   ) %>%
+  left_join(crosswalk, by = c("PIN* [PARID]" = "original_pin")) %>%
+  # Replace PIN* [PARID] with meta_pin from crosswalk only if it is not NA
+  mutate(`PIN* [PARID]` = coalesce((meta_pin), (`PIN* [PARID]`))) %>%
   finalize_columns(needed_columns)
 
 need_worked <- read_xlsx_all_char(
@@ -58,6 +67,9 @@ need_worked <- read_xlsx_all_char(
       "%m/%d/%Y"
     )
   ) %>%
+  left_join(crosswalk, by = c("PIN* [PARID]" = "original_pin")) %>%
+  # Replace PIN* [PARID] with meta_pin from crosswalk only if it is not NA
+  mutate(`PIN* [PARID]` = coalesce((meta_pin), (`PIN* [PARID]`))) %>%
   finalize_columns(needed_columns)
 
 write.csv(
