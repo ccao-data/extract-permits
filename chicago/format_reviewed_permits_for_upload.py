@@ -83,7 +83,9 @@ def pin_cell_matches_flag(pin_cell) -> bool:
     return False
 
 
-def remove_flagged_rows_from_original_xlsx(file_path: str, cleaned_xlsx_path) -> str:
+def remove_flagged_rows_from_original_xlsx(
+    file_path: str, cleaned_xlsx_path
+) -> str:
     """
     Remove any rows in the 'PIN Errors' sheet whose 'PIN* [PARID]' cell fill color
     matches FLAG_FILL_COLORS, and save a copy of the workbook preserving formatting.
