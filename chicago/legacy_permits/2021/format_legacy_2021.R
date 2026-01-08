@@ -41,6 +41,7 @@ need_worked <- read_xlsx_all_char(
   left_join(crosswalk, by = c("PIN* [PARID]" = "original_pin")) %>%
   # Replace PIN* [PARID] with meta_pin from crosswalk only if it is not NA
   mutate(`PIN* [PARID]` = coalesce((meta_pin), (`PIN* [PARID]`))) %>%
+  select(-meta_pin) %>%
   finalize_columns(needed_columns)
 
 write.csv(
