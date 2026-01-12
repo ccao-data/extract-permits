@@ -37,7 +37,16 @@ actionable <- read_xlsx_all_char(
   left_join(crosswalk, by = c("PIN* [PARID]" = "original_pin")) %>%
   # Replace PIN* [PARID] with meta_pin from crosswalk only if it is not NA
   mutate(`PIN* [PARID]` = coalesce((meta_pin), (`PIN* [PARID]`))) %>%
+  # Remove a pin which is valid 14 digits but all 0's
+  filter(`PIN* [PARID]` != '00000000000000') %>%
   select(-meta_pin) %>%
+  # There are duplicate pins in this script
+ group_by(
+    `PIN* [PARID]`,
+    `Local Permit No.* [USER28]`
+  ) %>%
+  slice(1) %>%
+  ungroup() %>%
   finalize_columns(needed_columns)
 
 need_worked <- read_xlsx_all_char(
