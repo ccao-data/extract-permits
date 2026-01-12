@@ -269,8 +269,7 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-    )
+    parser = argparse.ArgumentParser()
     parser.add_argument("file_path", help="Path to the Excel file")
     args = parser.parse_args()
     format_reviewed_permits_for_upload(args.file_path)
