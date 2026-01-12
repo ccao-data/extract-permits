@@ -5,7 +5,7 @@ library(tidyr)
 options(scipen = 999)
 
 column_order <- c(
-  "LLINE",
+  "# [LLINE]",
   "PIN* [PARID]",
   "Local Permit No.* [USER28]",
   "Issue Date* [PERMDT]",
@@ -109,12 +109,12 @@ finalize_columns <- function(df, needed_columns) {
 
   upload <- df_flagged %>%
     filter(valid_row) %>%
-    mutate(LLINE = row_number()) %>%
+    mutate("# [LLINE]" = row_number()) %>%
     select(-starts_with("valid_"))
 
   need_review <- df_flagged %>%
     filter(!valid_row) %>%
-    mutate(LLINE = row_number())
+    mutate("# [LLINE]" = row_number())
 
   list(
     upload = upload,

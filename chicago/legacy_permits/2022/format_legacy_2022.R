@@ -1,6 +1,7 @@
 library(dplyr)
 library(openxlsx)
 library(tidyr)
+library(openxlsx)
 
 source("helper.R")
 
@@ -79,26 +80,26 @@ need_worked <- read_xlsx_all_char(
   select(-meta_pin) %>%
   finalize_columns(needed_columns)
 
-write.csv(
+openxlsx::write.xlsx(
   need_worked$upload,
-  "2022/2022permits_processed_legacy_need_worked_upload.csv",
-  row.names = FALSE
+  "2022/2022permits_processed_legacy_need_worked_upload.xlsx",
+  rowNames = FALSE
 )
 
-write.csv(
+openxlsx::write.xlsx(
   need_worked$need_review,
-  "2022/2022permits_processed_legacy_need_worked_review.csv",
-  row.names = FALSE
+  "2022/2022permits_processed_legacy_need_worked_review.xlsx",
+  rowNames = FALSE
 )
 
-write.csv(
+openxlsx::write.xlsx(
   actionable$upload,
-  "2022/2022permits_processed_legacy_actionable_upload.csv",
-  row.names = FALSE
-  )
+  "2022/2022permits_processed_legacy_actionable_upload.xlsx",
+  rowNames = FALSE
+)
 
-write.csv(
+openxlsx::write.xlsx(
   actionable$need_review,
-  "2022/2022permits_processed_legacy_actionable_review.csv",
-  row.names = FALSE
-  )
+  "2022/2022permits_processed_legacy_actionable_review.xlsx",
+  rowNames = FALSE
+)

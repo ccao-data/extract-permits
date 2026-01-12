@@ -1,5 +1,4 @@
 import argparse  # noqa: I001
-import csv
 import os
 from datetime import datetime
 
@@ -84,7 +83,7 @@ def pin_cell_matches_flag(pin_cell) -> bool:
 
 
 def remove_flagged_rows_from_original_xlsx(
-    file_path: str, cleaned_xlsx_path
+    file_path: str, cleaned_xlsx_path: str
 ) -> str:
     """
     Remove any rows in the 'PIN Errors' sheet whose 'PIN* [PARID]' cell fill color
@@ -112,9 +111,8 @@ def remove_flagged_rows_from_original_xlsx(
     for r in reversed(rows_to_delete):
         ws.delete_rows(r, 1)
 
-    out_path = file_path.replace(".xlsx", "_flagged_rows_removed.xlsx")
-    wb.save(out_path)
-    return out_path
+    wb.save(cleaned_xlsx_path)
+    return cleaned_xlsx_path
 
 
 def format_reviewed_permits_for_upload(file_path: str) -> None:
@@ -151,11 +149,6 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
 
         issue_dates.append(dt)
 
-    if not issue_dates:
-        raise ValueError(
-            "No valid Issue Date values found to derive date bounds."
-        )
-
     start_date = min(issue_dates).strftime("%Y-%m-%d")
     end_date = max(issue_dates).strftime("%Y-%m-%d")
 
@@ -179,20 +172,6 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
     # Upload batching setup
     batch_size = 250
     batch_number = 1
-    rows_in_batch = 0
-    current_lline = 1
-
-    def new_upload_batch():
-        nonlocal batch_number, current_lline
-        upload_path = file_path.replace(".xlsx", f"_upload_{batch_number}.csv")
-        f = open(upload_path, "w", newline="", encoding="utf-8")
-        w = csv.writer(f)
-        w.writerow(required_columns)
-        current_lline = 1
-        print(f"Created upload batch: {upload_path}")
-        return w, f, upload_path
-
-    upload_writer, upload_handle, last_upload_path = new_upload_batch()
 
     # Only keep rows where the PIN cell background matches the flag colors
     flagged_rows = []
@@ -211,7 +190,7 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
         # Build row with required_columns only
         new_row = {}
         for col in required_columns:
-            if col == "LLINE":
+            if col == "# LLINE":
                 continue
             idx = header_index.get(col)
             if idx is not None and idx < len(row_vals):
@@ -229,9 +208,10 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
         flagged_rows.append(new_row)
 
     df_flagged_only = pd.DataFrame(flagged_rows)
-    # Create a new folder with the current date
-    date_str = datetime.now().strftime("%Y%m%d")
-    output_folder = f"files_reviewed_and_cleaned_for_smartfile_{date_str}"
+
+    # New: output folder format
+    folder_prefix = f"{start_date}_to_{end_date}_permits_ready_for_upload"
+    output_folder = folder_prefix
     os.makedirs(output_folder, exist_ok=True)
 
     out = finalize_columns(
@@ -243,43 +223,45 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
     ).dt.strftime("%m/%d/%Y")
     need_review_df = out["need_review"].copy()
 
-    # Write need_review as a single CSV
-    need_review_path = os.path.join(output_folder, "need_review.csv")
+    # New: write need_review as XLSX with requested naming pattern
+    need_review_path = os.path.join(
+        output_folder, f"{folder_prefix}_need_review.xlsx"
+    )
     need_review_df = need_review_df.reindex(columns=required_columns)
-    need_review_df["LLINE"] = range(1, len(need_review_df) + 1)
-    need_review_df.to_csv(need_review_path, index=False, encoding="utf-8")
-    print(f"Need-review CSV saved to: {need_review_path}")
+    need_review_df["# LLINE"] = range(1, len(need_review_df) + 1)
+    need_review_df.to_excel(
+        need_review_path,
+        index=False,
+        engine="openpyxl",
+    )
+    print(f"Need-review XLSX saved to: {need_review_path}")
     print(f"Total need-review rows written: {len(need_review_df)}")
 
-    # Write upload rows in batches, with LLINE reset per batch
+    # New: write upload rows in batches as XLSX with requested naming pattern
     for start in range(0, len(upload_df), batch_size):
         batch = upload_df.iloc[start : start + batch_size].copy()
-        batch["LLINE"] = range(1, len(batch) + 1)
+        batch["# LLINE"] = range(1, len(batch) + 1)
 
         # Ensure column order
         batch = batch.reindex(columns=required_columns)
 
         upload_batch_path = os.path.join(
-            output_folder, f"upload_batch_{batch_number}.csv"
+            output_folder, f"{folder_prefix}_{batch_number}.xlsx"
         )
-        with open(
-            upload_batch_path, "w", newline="", encoding="utf-8"
-        ) as batch_file:
-            batch_writer = csv.writer(batch_file)
-            batch_writer.writerow(required_columns)
-            for row in batch.itertuples(index=False, name=None):
-                batch_writer.writerow(list(row))
+        batch.to_excel(
+            upload_batch_path,
+            index=False,
+            engine="openpyxl",
+        )
 
         print(f"Upload batch saved to: {upload_batch_path}")
-        rows_in_batch += len(batch)
 
         if start + batch_size < len(upload_df):
             batch_number += 1
-            rows_in_batch = 0
 
-    # Remove flagged rows from original XLSX and save copy for re-review
+    # Keep the cleaned workbook in the same folder with consistent prefix
     cleaned_xlsx_path = os.path.join(
-        output_folder, "cleaned_flagged_rows_removed.xlsx"
+        output_folder, f"{folder_prefix}_cleaned_flagged_rows_removed.xlsx"
     )
     remove_flagged_rows_from_original_xlsx(file_path, cleaned_xlsx_path)
 
@@ -288,7 +270,6 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Export flagged PIN Errors rows (only) into upload CSV batches, and save an XLSX copy with flagged rows removed."
     )
     parser.add_argument("file_path", help="Path to the Excel file")
     args = parser.parse_args()

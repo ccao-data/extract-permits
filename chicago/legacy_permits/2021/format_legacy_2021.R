@@ -1,6 +1,7 @@
 library(dplyr)
 library(openxlsx)
 library(tidyr)
+library(openxlsx)
 
 source("helper.R")
 
@@ -44,14 +45,14 @@ need_worked <- read_xlsx_all_char(
   select(-meta_pin) %>%
   finalize_columns(needed_columns)
 
-write.csv(
+write.xlsx(
   need_worked$upload,
-  "2021/2021permits_processed_legacy_need_worked_upload.csv",
-  row.names = FALSE
+  "2021/2021permits_processed_legacy_need_worked_upload.xlsx",
+  rowNames = FALSE
 )
 
-write.csv(
+write.xlsx(
   need_worked$need_review,
-  "2021/2021permits_processed_legacy_need_worked_review.csv",
-  row.names = FALSE
+  "2021/2021permits_processed_legacy_need_worked_review.xlsx",
+  rowNames = FALSE
 )
