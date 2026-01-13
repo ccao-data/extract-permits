@@ -7,7 +7,7 @@ from pyathena.pandas.util import as_pandas
 
 # Ordered column output for final CSV upload
 required_columns = [
-    "# LLINE",
+    "# [LLINE]",
     "PIN* [PARID]",
     "Local Permit No.* [USER28]",
     "Issue Date* [PERMDT]",
@@ -157,12 +157,17 @@ def finalize_columns(
         & df_flagged["valid_name_len"]
         & df_flagged["pin14_in_data"]
     )
-
+    # Keep only one row of duplicate PINs and Permit numbers
+    df_flagged = df_flagged[
+        ~df_flagged.duplicated(
+            subset=["PIN* [PARID]", "Local Permit No.* [USER28]"], keep="first"
+        )
+    ]
     upload = df_flagged[df_flagged["valid_row"]].copy()
-    upload["# LLINE"] = range(1, len(upload) + 1)
+    upload["# [LLINE]"] = range(1, len(upload) + 1)
     upload = upload.loc[:, ~upload.columns.str.startswith("valid_")]
 
     need_review = df_flagged[~df_flagged["valid_row"]].copy()
-    need_review["# LLINE"] = range(1, len(need_review) + 1)
+    need_review["# [LLINE]"] = range(1, len(need_review) + 1)
 
     return {"upload": upload, "need_review": need_review}

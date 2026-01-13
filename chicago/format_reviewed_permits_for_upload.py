@@ -190,7 +190,7 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
         # Build row with required_columns only
         new_row = {}
         for col in required_columns:
-            if col == "# LLINE":
+            if col == "# [LLINE]":
                 continue
             idx = header_index.get(col)
             if idx is not None and idx < len(row_vals):
@@ -228,7 +228,7 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
         output_folder, f"{folder_prefix}_need_review.xlsx"
     )
     need_review_df = need_review_df.reindex(columns=required_columns)
-    need_review_df["# LLINE"] = range(1, len(need_review_df) + 1)
+    need_review_df["# [LLINE]"] = range(1, len(need_review_df) + 1)
     need_review_df.to_excel(
         need_review_path,
         index=False,
@@ -240,7 +240,7 @@ def format_reviewed_permits_for_upload(file_path: str) -> None:
     # New: write upload rows in batches as XLSX with requested naming pattern
     for start in range(0, len(upload_df), batch_size):
         batch = upload_df.iloc[start : start + batch_size].copy()
-        batch["# LLINE"] = range(1, len(batch) + 1)
+        batch["# [LLINE]"] = range(1, len(batch) + 1)
 
         # Ensure column order
         batch = batch.reindex(columns=required_columns)
