@@ -78,6 +78,12 @@ need_worked <- read_xlsx_all_char(
   # Replace PIN* [PARID] with meta_pin from crosswalk only if it is not NA
   mutate(`PIN* [PARID]` = coalesce((meta_pin), (`PIN* [PARID]`))) %>%
   select(-meta_pin) %>%
+  group_by(
+      `PIN* [PARID]`,
+      `Local Permit No.* [USER28]`
+    ) %>%
+    slice(1) %>%
+    ungroup() %>%
   finalize_columns(needed_columns)
 
 openxlsx::write.xlsx(
