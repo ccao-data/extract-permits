@@ -16,9 +16,6 @@ The script also expects three positional arguments:
     * start_date (str, YYYY-MM-DD): The lower bound date to use for filtering permits
     * end_date (str, YYYY-MM-DD): The upper bound date to use for filtering
     * deduplicate (bool): Whether to filter out permits that already exist in iasworld
-
-The following will also need to be updated:
-    - At the beginning of each year: update year to current year in SQL_QUERY inside pull_existing_pins_from_athena() function
 """
 
 import decimal
@@ -79,35 +76,32 @@ def parse_args() -> tuple[str, str, bool]:
     return start_date_str, end_date_str, deduplicate
 
 
-def year_from_date_string(date_str: str) -> str:
-    """Parse a date string in YYYY-MM-DD format and return a string representing
-    the year of the date"""
+def get_current_assessment_year(cursor: Cursor) -> str:
+    """Query Athena for the current assessment year"""
+    # Use PARDAT as the source of truth for the current assessment year.
+    # This choice is somewhat arbitrary, since we could theoretically use
+    # any table as the source of truth for this info, but PARDAT feels
+    # relevant given that it is the base for our PIN universe and the
+    # main purpose of this year is to help us construct that universe
+    cursor.execute("""
+        SELECT MAX(taxyr)
+        FROM iasworld.pardat
+        WHERE cur = 'Y'
+            AND deactivat IS NULL
+    """)
+    return cursor.fetchall()[0][0]
 
-    return str(datetime.strptime(date_str, "%Y-%m-%d").year)
 
-
-def get_pin_cache_filename(start_date: str, end_date: str) -> str:
-    """Given start and end dates, return the name of a file that we can use to
-    cache distinct PINs between the years represented by the two dates"""
-
-    # Assume that dates are already validated for YYYY-MM-DD format
-    start_year = year_from_date_string(start_date)
-    end_year = year_from_date_string(end_date)
-
-    return f"chicago_pin_universe-{start_year}-{end_year}.csv"
+def get_pin_cache_filename(year: str) -> str:
+    """Given a year, return the name of a file that we can use to cache
+    distinct PINs in that year"""
+    return f"chicago_pin_universe_{year}.csv"
 
 
 # Output data will be distinct by PIN and address. In the case where a PIN changes its address or has multiple addresses, it will appear twice.
-def pull_existing_pins_from_athena(
-    cursor: Cursor, start_date: str, end_date: str
-) -> pd.DataFrame:
-    """Connect to Athena and download all PINs in Chicago between the given
-    start and end dates"""
-
-    # Assume that dates are already validated for YYYY-MM-DD format
-    start_year = year_from_date_string(start_date)
-    end_year = year_from_date_string(end_date)
-
+def pull_existing_pins_from_athena(cursor: Cursor, year: str) -> pd.DataFrame:
+    """Connect to Athena and download all PINs in Chicago for a given year,
+    saving the resulting data to a cache file according to the year."""
     SQL_QUERY = """
     SELECT DISTINCT
         CAST(u.pin AS varchar) AS pin,
@@ -118,11 +112,11 @@ def pull_existing_pins_from_athena(
         ON u.pin = a.pin
         AND u.year = a.year
     WHERE u.triad_name = 'City'
-    AND u.year BETWEEN %(start_year)s AND %(end_year)s;
+    AND u.year = %(year)s
     """
-    cursor.execute(SQL_QUERY, {"start_year": start_year, "end_year": end_year})
+    cursor.execute(SQL_QUERY, {"year": year})
     chicago_pin_universe = as_pandas(cursor)
-    pin_cache_filename = get_pin_cache_filename(start_date, end_date)
+    pin_cache_filename = get_pin_cache_filename(year)
     chicago_pin_universe.to_csv(pin_cache_filename, index=False)
 
     return chicago_pin_universe
@@ -707,7 +701,7 @@ def save_xlsx_files(df, max_rows, file_base_name):
     # save ready permits batched into 200 permits max per excel file
     num_files_ready = math.ceil(len(df_ready) / max_rows)
     print(
-        "creating "
+        "Creating "
         + str(num_files_ready)
         + " xlsx files ready for SmartFile upload"
     )
@@ -900,7 +894,14 @@ if __name__ == "__main__":
     )
     cursor = conn.cursor()
 
-    pin_cache_filename = get_pin_cache_filename(start_date, end_date)
+    # Query for the current assessment year, which we will use to build a
+    # universe of all current PINs to use for validating permit PINs. Smartfile
+    # validates PINs against the current assessment year, not the date of
+    # permit issue, so we need to match that logic
+    print("Querying for current assessment year")
+    year = get_current_assessment_year(cursor)
+
+    pin_cache_filename = get_pin_cache_filename(year)
     if os.path.exists(pin_cache_filename):
         print(f"Loading Chicago PIN universe data from {pin_cache_filename}")
         chicago_pin_universe = pd.read_csv(
@@ -908,17 +909,12 @@ if __name__ == "__main__":
             dtype={"pin": "string", "pin10": "string"},
         )
     else:
-        print("Pulling PINs from Athena")
-        chicago_pin_universe = pull_existing_pins_from_athena(
-            cursor, start_date, end_date
-        )
+        print(f"Pulling {year} PINs from Athena")
+        chicago_pin_universe = pull_existing_pins_from_athena(cursor, year)
 
+    print(f"Downloading permits between {start_date} and {end_date}")
     permits = download_permits(start_date, end_date)
-    print(
-        f"Downloaded {len(permits)} "
-        f"permit{'' if len(permits) == 1 else 's'} "
-        f"between {start_date} and {end_date}"
-    )
+    print(f"Cleaning {len(permits)} permit{'' if len(permits) == 1 else 's'}")
 
     # Chicago permit data does not include city and state, but smartfile
     # expects it, so add it manually
