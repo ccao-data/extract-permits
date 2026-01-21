@@ -241,7 +241,6 @@ def write_outputs_for_sheet(
     out = finalize_columns(
         df_flagged_only, filled_columns, chicago_pin_universe
     )
-
     upload_df = out["upload"].copy()
     upload_df["Issue Date* [PERMDT]"] = pd.to_datetime(
         upload_df["Issue Date* [PERMDT]"], errors="coerce"
@@ -298,7 +297,7 @@ def write_outputs_for_sheet(
         if start + batch_size < len(upload_df):
             batch_number += 1
 
-    # Keep the cleaned workbook in the color_testing folder with consistent prefix
+    # Keep the cleaned workbook in the color_testing folder
     cleaned_xlsx_path = os.path.join(
         color_testing_folder,
         f"{base_prefix}_color_testing_cleaned_flagged_rows_removed.xlsx",
@@ -314,7 +313,7 @@ def write_outputs_for_sheet(
 
 
 def format_reviewed_permits_for_upload(file_path: str) -> None:
-    # Load once to compute overall date range for cache (across both sheets)
+    # Load once to compute overall date range for cache
     wb_dates = openpyxl.load_workbook(file_path, data_only=True)
 
     sheets_to_process = ["PIN Errors", "Other Errors"]
