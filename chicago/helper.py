@@ -1,4 +1,3 @@
-import re
 from datetime import datetime
 
 import pandas as pd
@@ -41,8 +40,8 @@ filled_columns = [
 
 
 def normalize_pin(pin_vec):
-    # remove - from PIN
-    pin_vec = re.sub("-", "", pin_vec)
+    # remove any non-numeric values
+    pin_vec = "".join(ch for ch in str(pin_vec) if ch.isdigit())
 
     # If pin is 13 digits add leading 0
     if len(pin_vec) == 13:
@@ -148,6 +147,11 @@ def finalize_columns(
         chicago_pin_universe["pin"]
     )
 
+    # Flag duplicated (PIN, Permit) pairs
+    df_flagged["duplicate_pin_permit"] = df_flagged.duplicated(
+        subset=["PIN* [PARID]", "Local Permit No.* [USER28]"], keep=False
+    )
+
     df_flagged["valid_row"] = (
         df_flagged["valid_filled"]
         & df_flagged["valid_pin"]
@@ -156,13 +160,9 @@ def finalize_columns(
         & df_flagged["valid_note_len"]
         & df_flagged["valid_name_len"]
         & df_flagged["pin14_in_data"]
+        & ~df_flagged["duplicate_pin_permit"]
     )
-    # Keep only one row of duplicate PINs and Permit numbers
-    df_flagged = df_flagged[
-        ~df_flagged.duplicated(
-            subset=["PIN* [PARID]", "Local Permit No.* [USER28]"], keep="first"
-        )
-    ]
+
     upload = df_flagged[df_flagged["valid_row"]].copy()
     upload["# [LLINE]"] = range(1, len(upload) + 1)
     upload = upload.loc[:, ~upload.columns.str.startswith("valid_")]
