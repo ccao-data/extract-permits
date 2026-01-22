@@ -98,12 +98,11 @@ def get_pin_cache_filename(year: str) -> str:
     return f"chicago_pin_universe_{year}.csv"
 
 
-# Output data will be distinct by PIN and address. In the case where a PIN changes its address or has multiple addresses, it will appear twice.
 def pull_existing_pins_from_athena(cursor: Cursor, year: str) -> pd.DataFrame:
     """Connect to Athena and download all PINs in Chicago for a given year,
     saving the resulting data to a cache file according to the year."""
     SQL_QUERY = """
-    SELECT DISTINCT
+    SELECT
         CAST(u.pin AS varchar) AS pin,
         CAST(u.pin10 AS varchar) AS pin10,
         a.prop_address_full
