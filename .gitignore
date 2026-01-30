@@ -162,5 +162,3 @@ cython_debug/
 # Ignore generated data
 chicago/files_for_*
 chicago/chicago_pin_universe*.csv
-
-renv/library/
