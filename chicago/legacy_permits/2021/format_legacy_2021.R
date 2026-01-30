@@ -44,6 +44,9 @@ need_worked <- read_xlsx_all_char(
   mutate(`PIN* [PARID]` = coalesce((meta_pin), (`PIN* [PARID]`))) %>%
   select(-meta_pin) %>%
    group_by(
+    # This deduplicates PINs. The most common cuplrit for this is OHare which
+    # has many pins in the PIN or parid column, but a single pin in the PIN1
+    # column.
     `PIN* [PARID]`,
     `Local Permit No.* [USER28]`
   ) %>%
