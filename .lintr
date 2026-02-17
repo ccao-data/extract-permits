@@ -1,9 +1,6 @@
-encoding: "UTF-8"
-
-linters:
-  linters_with_defaults(
-    object_name_linter = NULL,
-    object_usage_linter = NULL,
-    object_length_linter = NULL,
-    return_linter = NULL
-  )
+linters: linters_with_defaults(
+  object_name_linter = NULL,
+  object_usage_linter = NULL,
+  object_length_linter = NULL,
+  return_linter = NULL
+)
