@@ -38,12 +38,15 @@ needed_columns <- c(
 )
 
 expand_pins <- function(df_raw) {
-  pin_cols <- names(df_raw)[grepl("^PIN\\d+$", names(df_raw), ignore.case = TRUE)]
+  pin_cols <- names(df_raw)[grepl("^PIN\\d+$",
+    names(df_raw),
+    ignore.case = TRUE
+  )]
 
   df_long <- df_raw %>%
     pivot_longer(
       cols = all_of(pin_cols),
-      names_to  = "pin_col",
+      names_to = "pin_col",
       values_to = "extra_pin",
       values_drop_na = TRUE
     ) %>%
@@ -64,11 +67,17 @@ normalize_pin <- function(pin_vec) {
   # remove - from PIN
   pin_vec <- gsub("-", "", pin_vec)
   # If pin is 13 digits add leading 0
-  pin_vec <- ifelse(nchar(pin_vec) == 13, paste0("0", pin_vec), pin_vec)
+  pin_vec <- ifelse(nchar(pin_vec) == 13,
+    paste0("0", pin_vec), pin_vec
+  )
   # If PIN is 10 digits add 4 final digits
-  pin_vec <- ifelse(nchar(pin_vec) == 10, paste0(pin_vec, "0000"), pin_vec)
+  pin_vec <- ifelse(nchar(pin_vec) == 10,
+    paste0(pin_vec, "0000"), pin_vec
+  )
   # If pin is 9 digits do both
-  pin_vec <- ifelse(nchar(pin_vec) == 9, paste0("0", pin_vec, "0000"), pin_vec)
+  pin_vec <- ifelse(nchar(pin_vec) == 9,
+    paste0("0", pin_vec, "0000"), pin_vec
+  )
 
   pin_vec
 }
@@ -85,22 +94,25 @@ read_xlsx_all_char <- function(path, sheet) {
     dplyr::mutate(across(everything(), as.character))
 }
 finalize_columns <- function(df, needed_columns) {
-
   df_flagged <- df %>%
     mutate(
       valid_needed = if_all(all_of(needed_columns), ~ !is.na(.x)),
-      valid_pin = nchar(.data[["PIN* [PARID]"]]) == 14 & grepl("^\\d{14}$", .data[["PIN* [PARID]"]]),
-      valid_permit = nchar(.data[["Local Permit No.* [USER28]"]]) %in% c(9, 10),
-      valid_addr_len = nchar(.data[["Applicant Street Address* [ADDR1]"]]) <= 40,
+      valid_pin = nchar(.data[["PIN* [PARID]"]]) == 14 & grepl(
+        "^\\d{14}$",
+        .data[["PIN* [PARID]"]]
+      ),
+      valid_permit = nchar(.data[["Local Permit No.* [USER28]"]])
+      %in% c(9, 10),
+      valid_addr_len =
+        nchar(.data[["Applicant Street Address* [ADDR1]"]]) <= 40,
       valid_note_len = nchar(.data[["Notes [NOTE1]"]]) <= 2000,
       valid_name_len = nchar(.data[["Applicant* [USER21]"]]) <= 50,
       valid_amount =
         suppressWarnings(
           as.numeric(.data[["Amount* [AMOUNT]"]]) < 2147483647
         ),
-        
       valid_row = valid_needed &
-        valid_pin &
+        valid_pin & # nolint
         valid_permit &
         valid_addr_len &
         valid_note_len &

@@ -39,25 +39,50 @@ conn <- dbConnect(
 )
 
 # Run each relevant script before using the different years
-missing_pins_2021_need_worked <- find_missing_pins(need_worked$upload, conn, '2021') %>%
-  mutate(year = '2021',
-         tab = 'need_worked')
+missing_pins_2021_need_worked <- find_missing_pins(
+  need_worked$upload,
+  conn, "2021"
+) %>%
+  mutate(
+    year = "2021",
+    tab = "need_worked"
+  )
 
-missing_pins_2022_need_worked <- find_missing_pins(need_worked$upload, conn, '2022') %>%
-  mutate(year = '2022',
-         tab = 'need_worked')
+missing_pins_2022_need_worked <- find_missing_pins(
+  need_worked$upload,
+  conn, "2022"
+) %>%
+  mutate(
+    year = "2022",
+    tab = "need_worked"
+  )
 
-missing_pins_2022_actionable <- find_missing_pins(actionable$upload, conn, '2022') %>%
-  mutate(year = '2022',
-         tab = 'actionable')
+missing_pins_2022_actionable <- find_missing_pins(
+  actionable$upload,
+  conn, "2022"
+) %>%
+  mutate(
+    year = "2022",
+    tab = "actionable"
+  )
 
-missing_pins_2023_need_worked <- find_missing_pins(need_worked$upload, conn, '2023') %>%
-  mutate(year = '2023',
-         tab = 'need_worked')
+missing_pins_2023_need_worked <- find_missing_pins(
+  need_worked$upload,
+  conn, "2023"
+) %>%
+  mutate(
+    year = "2023",
+    tab = "need_worked"
+  )
 
-missing_pins_2023_actionable <- find_missing_pins(actionable$upload, conn, '2023') %>%
-  mutate(year = '2023',
-         tab = 'actionable')
+missing_pins_2023_actionable <- find_missing_pins(
+  actionable$upload,
+  conn, "2023"
+) %>%
+  mutate(
+    year = "2023",
+    tab = "actionable"
+  )
 
 all_missing_pins <- rbind(
   missing_pins_2021_need_worked,
@@ -66,4 +91,6 @@ all_missing_pins <- rbind(
   missing_pins_2023_need_worked,
   missing_pins_2023_actionable
 )
-write.csv(all_missing_pins, "legacy_pins_to_check.csv", row.names = FALSE)
+write.csv(all_missing_pins, "legacy_pins_to_check.csv",
+  row.names = FALSE
+)

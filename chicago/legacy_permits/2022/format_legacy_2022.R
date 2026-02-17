@@ -6,23 +6,25 @@ library(openxlsx)
 source("helper.R")
 
 crosswalk <- read.xlsx("crosswalk.xlsx") %>%
-  filter(year == '2022') %>%
+  filter(year == "2022") %>%
   select(meta_pin, original_pin) %>%
-  mutate(meta_pin = as.character(meta_pin),
-         original_pin = as.character(original_pin))
+  mutate(
+    meta_pin = as.character(meta_pin),
+    original_pin = as.character(original_pin)
+  )
 
 actionable <- read_xlsx_all_char(
   "2022/2022 City permits for manual review v5processed (005).xlsx",
   sheet = "Actionable"
 ) %>%
   select(
-    "PIN* [PARID]"                   = PIN1,
-    "Local Permit No.* [USER28]"        = Local.Permit.No,
-    "Issue Date* [PERMDT]"              = ISSUE_DATE,
-    "Amount* [AMOUNT]"                  = Amount,
+    "PIN* [PARID]" = PIN1,
+    "Local Permit No.* [USER28]" = Local.Permit.No,
+    "Issue Date* [PERMDT]" = ISSUE_DATE,
+    "Amount* [AMOUNT]" = Amount,
     "Applicant Street Address* [ADDR1]" = Street.Address,
-    "Applicant* [USER21]"               = Applicant,
-    "Notes [NOTE1]"                     = Notes,
+    "Applicant* [USER21]" = Applicant,
+    "Notes [NOTE1]" = Notes,
     PIN2, PIN3, PIN4, PIN5, PIN6, PIN7
   ) %>%
   mutate(`Applicant City, State, Zip* [ADDR3]` = "CHICAGO, IL") %>%
@@ -39,10 +41,10 @@ actionable <- read_xlsx_all_char(
   # Replace PIN* [PARID] with meta_pin from crosswalk only if it is not NA
   mutate(`PIN* [PARID]` = coalesce((meta_pin), (`PIN* [PARID]`))) %>%
   # Remove a pin which is valid 14 digits but all 0's
-  filter(`PIN* [PARID]` != '00000000000000') %>%
+  filter(`PIN* [PARID]` != "00000000000000") %>%
   select(-meta_pin) %>%
   # There are duplicate pins in this script
- group_by(
+  group_by(
     `PIN* [PARID]`,
     `Local Permit No.* [USER28]`
   ) %>%
@@ -55,13 +57,13 @@ need_worked <- read_xlsx_all_char(
   sheet = "Need worked"
 ) %>%
   select(
-    "PIN* [PARID]"                   = PIN1,
-    "Local Permit No.* [USER28]"        = Local.Permit.No,
-    "Issue Date* [PERMDT]"              = ISSUE_DATE,
-    "Amount* [AMOUNT]"                  = Amount,
+    "PIN* [PARID]" = PIN1,
+    "Local Permit No.* [USER28]" = Local.Permit.No,
+    "Issue Date* [PERMDT]" = ISSUE_DATE,
+    "Amount* [AMOUNT]" = Amount,
     "Applicant Street Address* [ADDR1]" = Street.Address,
-    "Applicant* [USER21]"               = Applicant,
-    "Notes [NOTE1]"                     = Notes,
+    "Applicant* [USER21]" = Applicant,
+    "Notes [NOTE1]" = Notes,
     PIN2, PIN3, PIN4, PIN5, PIN6, PIN7
   ) %>%
   mutate(`Applicant City, State, Zip* [ADDR3]` = "Chicago, IL") %>%
@@ -79,11 +81,11 @@ need_worked <- read_xlsx_all_char(
   mutate(`PIN* [PARID]` = coalesce((meta_pin), (`PIN* [PARID]`))) %>%
   select(-meta_pin) %>%
   group_by(
-      `PIN* [PARID]`,
-      `Local Permit No.* [USER28]`
-    ) %>%
-    slice(1) %>%
-    ungroup() %>%
+    `PIN* [PARID]`,
+    `Local Permit No.* [USER28]`
+  ) %>%
+  slice(1) %>%
+  ungroup() %>%
   finalize_columns(needed_columns)
 
 openxlsx::write.xlsx(

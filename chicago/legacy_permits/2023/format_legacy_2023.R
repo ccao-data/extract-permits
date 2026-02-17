@@ -6,23 +6,25 @@ library(openxlsx)
 source("helper.R")
 
 crosswalk <- read.xlsx("crosswalk.xlsx") %>%
-  filter(year == '2023') %>%
+  filter(year == "2023") %>%
   select(meta_pin, original_pin) %>%
-  mutate(meta_pin = as.character(meta_pin),
-         original_pin = as.character(original_pin))
+  mutate(
+    meta_pin = as.character(meta_pin),
+    original_pin = as.character(original_pin)
+  )
 
 actionable <- read_xlsx_all_char(
   "2023/2023permits_processed_2.xlsx",
   "Actionable"
 ) %>%
   select(
-    "PIN* [PARID]"                   = pin1,
-    "Local Permit No.* [USER28]"        = `permit#`,
-    "Issue Date* [PERMDT]"              = issue_date,
-    "Amount* [AMOUNT]"                  = rounded.cost,
-    "Notes [NOTE1]"                     = notes,
+    "PIN* [PARID]" = pin1,
+    "Local Permit No.* [USER28]" = `permit#`,
+    "Issue Date* [PERMDT]" = issue_date,
+    "Amount* [AMOUNT]" = rounded.cost,
+    "Notes [NOTE1]" = notes,
     "Applicant Street Address* [ADDR1]" = address,
-    "Applicant* [USER21]"               = contact_1_name,
+    "Applicant* [USER21]" = contact_1_name,
     pin2, pin3, pin4, pin5, pin6, pin7, pin8, pin9, pin10
   ) %>%
   mutate(`Applicant City, State, Zip* [ADDR3]` = "Chicago, IL") %>%
@@ -39,7 +41,7 @@ actionable <- read_xlsx_all_char(
   # Replace PIN* [PARID] with meta_pin from crosswalk only if it is not NA
   mutate(`PIN* [PARID]` = coalesce((meta_pin), (`PIN* [PARID]`))) %>%
   select(-meta_pin) %>%
-   group_by(
+  group_by(
     `PIN* [PARID]`,
     `Local Permit No.* [USER28]`
   ) %>%
@@ -52,19 +54,23 @@ need_worked <- read_xlsx_all_char(
   "Need worked"
 ) %>%
   select(
-    "PIN* [PARID]"                   = pin1,
-    "Local Permit No.* [USER28]"        = `permit#`,
-    "Issue Date* [PERMDT]"              = issue_date,
-    "Amount* [AMOUNT]"                  = rounded.cost,
+    "PIN* [PARID]" = pin1,
+    "Local Permit No.* [USER28]" = `permit#`,
+    "Issue Date* [PERMDT]" = issue_date,
+    "Amount* [AMOUNT]" = rounded.cost,
     "Applicant Street Address* [ADDR1]" = address,
-    "Applicant* [USER21]"               = contact_1_name,
-    "Notes [NOTE1]"                     = notes,
-    "Reinstated"          = Reinstated.permit,
+    "Applicant* [USER21]" = contact_1_name,
+    "Notes [NOTE1]" = notes,
+    "Reinstated" = Reinstated.permit,
     pin2, pin3, pin4, pin5, pin6, pin7, pin8, pin9, pin10
   ) %>%
-  mutate(`Applicant City, State, Zip* [ADDR3]` = "CHICAGO, IL",
-  # if reinstated is not NA replace the value for Notes with it
-  `Notes [NOTE1]` = ifelse(!is.na(`Reinstated`), `Reinstated`, `Notes [NOTE1]`)) %>%
+  mutate(
+    `Applicant City, State, Zip* [ADDR3]` = "CHICAGO, IL",
+    # if reinstated is not NA replace the value for Notes with it
+    `Notes [NOTE1]` = ifelse(!is.na(`Reinstated`),
+      `Reinstated`, `Notes [NOTE1]`
+    )
+  ) %>%
   select(-c(`Reinstated`)) %>%
   expand_pins() %>%
   ensure_columns(column_order) %>%
@@ -80,11 +86,11 @@ need_worked <- read_xlsx_all_char(
   mutate(`PIN* [PARID]` = coalesce((meta_pin), (`PIN* [PARID]`))) %>%
   select(-meta_pin) %>%
   group_by(
-      `PIN* [PARID]`,
-      `Local Permit No.* [USER28]`
-    ) %>%
-    slice(1) %>%
-    ungroup() %>%
+    `PIN* [PARID]`,
+    `Local Permit No.* [USER28]`
+  ) %>%
+  slice(1) %>%
+  ungroup() %>%
   finalize_columns(needed_columns)
 
 write.xlsx(

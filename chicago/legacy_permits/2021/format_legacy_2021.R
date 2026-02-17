@@ -6,10 +6,12 @@ library(openxlsx)
 source("helper.R")
 
 crosswalk <- read.xlsx("crosswalk.xlsx") %>%
-  filter(year == '2021') %>%
+  filter(year == "2021") %>%
   select(meta_pin, original_pin) %>%
-  mutate(meta_pin = as.character(meta_pin),
-         original_pin = as.character(original_pin))
+  mutate(
+    meta_pin = as.character(meta_pin),
+    original_pin = as.character(original_pin)
+  )
 
 need_worked <- read_xlsx_all_char(
   "2021/2021 manual review processed.xlsx",
@@ -20,13 +22,13 @@ need_worked <- read_xlsx_all_char(
       paste(STREET_NUMBER, STREET.DIRECTION, STREET_NAME, SUFFIX)
   ) %>%
   select(
-    "PIN* [PARID]"            = PIN1,
+    "PIN* [PARID]" = PIN1,
     "Local Permit No.* [USER28]" = `PERMIT#`,
-    "Issue Date* [PERMDT]"       = ISSUE_DATE,
-    "Amount* [AMOUNT]"           = REPORTED_COST,
+    "Issue Date* [PERMDT]" = ISSUE_DATE,
+    "Amount* [AMOUNT]" = REPORTED_COST,
     "Applicant Street Address* [ADDR1]",
-    "Applicant* [USER21]"        = CONTACT_1_NAME,
-    "Notes [NOTE1]"              = WORK_DESCRIPTION,
+    "Applicant* [USER21]" = CONTACT_1_NAME,
+    "Notes [NOTE1]" = WORK_DESCRIPTION,
     PIN2, PIN3, PIN4, PIN5, PIN6, PIN7
   ) %>%
   mutate(`Applicant City, State, Zip* [ADDR3]` = "CHICAGO, IL") %>%
@@ -43,7 +45,7 @@ need_worked <- read_xlsx_all_char(
   # Replace PIN* [PARID] with meta_pin from crosswalk only if it is not NA
   mutate(`PIN* [PARID]` = coalesce((meta_pin), (`PIN* [PARID]`))) %>%
   select(-meta_pin) %>%
-   group_by(
+  group_by(
     # This deduplicates PINs. The most common cuplrit for this is OHare which
     # has many pins in the PIN or parid column, but a single pin in the PIN1
     # column.
