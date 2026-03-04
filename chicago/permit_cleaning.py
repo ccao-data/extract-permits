@@ -634,8 +634,61 @@ def gen_file_base_name(start_date, end_date):
     return f"{start_date}_to_{end_date}_permits_"
 
 
+def _build_textjoin_errors_formula(row: int) -> str:
+    """Return the TEXTJOIN formula for the Errors column at a given row"""
+    r = row
+    return (
+        f'=_xlfn.TEXTJOIN(", ", TRUE,\n'
+        f'  IF(LEN(TRIM(D{r}))=0, "Missing PIN14", ""),\n'
+        f'  IF(COUNTIF(\'Universe of Valid PINs\'!A:A, D{r}) > 0, "", "Provide Valid Pin"),\n'
+        f'  IF(LEN(TRIM(D{r}))<>14, "PIN is not 14 digits", ""),\n'
+        f'  IF(LEN(R{r})>50, "Applicant Name > 50 characters", ""),\n'
+        f'  IF(LEN(F{r})>40, "Address > 40 characters", ""),\n'
+        f'  IF(LEN(S{r})>2000, "Work Description > 2000 characters", ""),\n'
+        f'  IF(AND(ISNUMBER(M{r}), M{r}>2147483647), "Amount exceeds limit", ""),\n'
+        f'  IF(OR(H{r}="", NOT(ISNUMBER(DATEVALUE(H{r})))), "Missing or Invalid Issue Date", ""),\n'
+        f'  IF(OR(M{r}="", NOT(ISNUMBER(M{r}))), "Missing Amount", ""),\n'
+        f'  IF(LEN(TRIM(R{r}))=0, "Missing Applicant", ""),\n'
+        f'  IF(LEN(TRIM(F{r}))=0, "Missing Applicant Street Address", ""),\n'
+        f'  IF(LEN(TRIM(G{r}))=0, "Missing Permit Number", ""),\n'
+        f'  IF(LEN(TRIM(S{r}))=0, "Missing Work Description", "")\n'
+        f")"
+    )
+
+
+# Column layout for the "Needs Review" sheet
+REVIEW_HEADERS = [
+    "Row Number",  # A - original row number (# [LLINE])
+    "Errors",  # B - TEXTJOIN formula
+    "Suggested PINs",  # C
+    "PIN",  # D - PIN* [PARID]
+    "Suggested Property Address",  # E - hyperlink to Cook County viewer
+    "Applicant Street Address",  # F - Applicant Street Address* [ADDR1]
+    "Local Permit No.",  # G - Local Permit No.* [USER28]
+    "Issue Date",  # H - Issue Date* [PERMDT]
+    "Desc 1* [DESC1]",  # I
+    "Desc 2 Code 1 [USER6]",  # J
+    "Desc 2 Code 2 [USER7]",  # K
+    "Desc 2 Code 3 [USER8]",  # L
+    "Amount",  # M - Amount* [AMOUNT]
+    "Assessable [IS_ASSESS]",  # N
+    "Applicant Address 2 [ADDR2]",  # O
+    "Applicant City, State, Zip* [ADDR3]",  # P
+    "Contact Phone* [PHONE]",  # Q
+    "Applicant",  # R - Applicant* [USER21]
+    "Notes",  # S - Notes [NOTE1]
+    "Occupy Dt [UDATE1]",  # T
+    "Submit Dt* [CERTDATE]",  # U
+    "Est Comp Dt [UDATE2]",  # V
+    "Matched Keywords",  # W
+    "Errors are Resolved",  # X
+]
+
+REVIEW_HIDDEN_COLS = {9, 10, 11, 12, 14, 15, 17, 20, 21, 22}
+
+
 def save_xlsx_files(df, max_rows, file_base_name):
-    # separate rows that are ready for upload from ones that need manual review or have missing or invalid PINs
+    # Separate rows ready for upload from those needing review
     df_ready = df[
         (df["FLAGS, TOTAL - PIN"] == 0) & (df["FLAGS, TOTAL - OTHER"] == 0)
     ].reset_index()
@@ -653,64 +706,31 @@ def save_xlsx_files(df, max_rows, file_base_name):
         ]
     )
 
-    df_other = df[
-        (df["FLAGS, TOTAL - OTHER"] > 0) & (df["FLAGS, TOTAL - PIN"] == 0)
-    ].reset_index()
-    df_other = (
-        df_other.drop(columns=df_other.filter(like="FLAG, PIN"))
-        .drop(columns=df_other.filter(like="FLAG, OTHER"))
-        .drop(
-            columns=[
-                "Original PIN",
-                "FLAGS, TOTAL - OTHER",
-                "index",
-                "pin_10digit",
-                "pin_suffix",
-            ]
-        )
-    )
-
-    df_review_pin_error = (
-        df[df["FLAGS, TOTAL - PIN"] > 0]
-        .reset_index()
-        .drop(columns=["index", "pin_10digit", "pin_suffix"])
-    )
+    # All rows with any flag go to a single "Needs Review" sheet
+    df_needs_review = df[
+        (df["FLAGS, TOTAL - PIN"] > 0) | (df["FLAGS, TOTAL - OTHER"] > 0)
+    ].reset_index(drop=True)
 
     print("# rows ready for upload: ", len(df_ready))
-    print(
-        "# rows flagged for pin error: ",
-        len(df_review_pin_error),
-    )
-    print("# rows flagged for other errors: ", len(df_other))
-    # create new folders with today's date to save xlsx files in (1 each for ready, needing
-    # manual shortening of fields, have missing fields or invalid PIN)
+    print("# rows needing review: ", len(df_needs_review))
+
     folder_for_files_ready = (
         datetime.today().date().strftime("files_for_smartfile_%Y_%m_%d")
     )
-    os.makedirs(
-        folder_for_files_ready, exist_ok=True
-    )  # note this will override an existing folder with same name
+    os.makedirs(folder_for_files_ready, exist_ok=True)
     folder_for_files_review = (
         datetime.today().date().strftime("files_for_review_%Y_%m_%d")
     )
-    os.makedirs(
-        folder_for_files_review, exist_ok=True
-    )  # note this will override an existing folder with same name
+    os.makedirs(folder_for_files_review, exist_ok=True)
 
-    # save ready permits batched into 200 permits max per excel file
+    # Save ready permits batched into max_rows per file
     num_files_ready = math.ceil(len(df_ready) / max_rows)
-    print(
-        "Creating "
-        + str(num_files_ready)
-        + " xlsx files ready for SmartFile upload"
-    )
+    print(f"Creating {num_files_ready} xlsx files ready for SmartFile upload")
     for i in range(num_files_ready):
-        start_index = i * max_rows
-        end_index = (i + 1) * max_rows
-        file_dataframe = df_ready.iloc[start_index:end_index].copy()
-        file_dataframe.reset_index(
-            drop=True, inplace=True
-        )  # each xlsx file needs an index from 1 to 200
+        file_dataframe = df_ready.iloc[
+            i * max_rows : (i + 1) * max_rows
+        ].copy()
+        file_dataframe.reset_index(drop=True, inplace=True)
         file_dataframe.index = file_dataframe.index + 1
         file_dataframe.index.name = "# [LLINE]"
         file_dataframe = file_dataframe.reset_index()
@@ -720,160 +740,183 @@ def save_xlsx_files(df, max_rows, file_base_name):
         )
         file_dataframe.to_excel(file_name, index=False, engine="xlsxwriter")
 
-    # permits needing manual field shortening and those with missing fields will be saved as single xlsx files, not batched by 200 rows
-    # Create a single Excel file with two sheets: "PIN" and "Other"
-
-    # Define the exact column order
-    COL_ORDER = [
-        "# [LLINE]",
-        "Original PIN",
-        "FLAG COMMENTS",
-        "Property Address",
-        "Suggested PINs",
-        "PIN* [PARID]",
-        "Local Permit No.* [USER28]",
-        "Issue Date* [PERMDT]",
-        "Desc 1* [DESC1]",
-        "Desc 2 Code 1 [USER6]",
-        "Desc 2 Code 2 [USER7]",
-        "Desc 2 Code 3 [USER8]",
-        "Amount* [AMOUNT]",
-        "Assessable [IS_ASSESS]",
-        "Applicant Street Address* [ADDR1]",
-        "Applicant Address 2 [ADDR2]",
-        "Applicant City, State, Zip* [ADDR3]",
-        "Contact Phone* [PHONE]",
-        "Applicant* [USER21]",
-        "Notes [NOTE1]",
-        "Occupy Dt [UDATE1]",
-        "Submit Dt* [CERTDATE]",
-        "Est Comp Dt [UDATE2]",
-        "FLAG, INVALID: PIN* [PARID]",
-        "FLAG, INVALID: pin_10digit",
-        "FLAG, LENGTH: Applicant Name",
-        "FLAG, LENGTH: Permit Number",
-        "FLAG, LENGTH: Applicant Street Address",
-        "FLAG, LENGTH: Note1",
-        "FLAG, VALUE: Amount",
-        "FLAG, EMPTY: PIN",
-        "FLAG, EMPTY: Issue Date",
-        "FLAG, EMPTY: Amount",
-        "FLAG, EMPTY: Applicant",
-        "FLAG, EMPTY: Applicant Street Address",
-        "FLAG, EMPTY: Permit Number",
-        "FLAG, EMPTY: Note1",
-        "Matched Keywords",
-    ]
-
-    unhidden_columns = [
-        "FLAG COMMENTS",
-        "Property Address",
-        "Suggested PINs",
-        "PIN* [PARID]",
-        "Local Permit No.* [USER28]",
-        "Issue Date* [PERMDT]",
-        "Amount* [AMOUNT]",
-        "Applicant Street Address* [ADDR1]",
-        "Applicant City, State, Zip* [ADDR3]",
-        "Applicant* [USER21]",
-        "Notes [NOTE1]",
-        "Matched Keywords",
-        "Auto-updating Validation",
-    ]
-
-    file_name_combined = os.path.join(
-        folder_for_files_review, file_base_name + "needing_review.xlsx"
+    # Build the review workbook with the new single-sheet structure
+    file_name_review = os.path.join(
+        folder_for_files_review, file_base_name + "needing_review.xlsm"
     )
 
-    # Copy template workbook
-    template_file = os.path.join("templates", "permits_needing_review.xlsx")
-    wb = openpyxl.load_workbook(template_file)
-    wb.save(file_name_combined)
+    wb = openpyxl.Workbook()
 
-    with pd.ExcelWriter(
-        file_name_combined,
-        engine="openpyxl",
-        mode="a",
-        if_sheet_exists="overlay",
-    ) as writer:
-        # PIN_Error sheet
-        df_review_pin_error.index = df_review_pin_error.index + 1
-        df_review_pin_error.index.name = "# [LLINE]"
-        df_review_pin_error = df_review_pin_error.reset_index()
-        df_review_pin_error = df_review_pin_error.reindex(columns=COL_ORDER)
-        df_review_pin_error.to_excel(
-            writer,
-            sheet_name="PIN Errors",
-            index=False,
-            header=False,
-            startrow=1,
+    # --- "Needs Review" sheet ---
+    ws_review = wb.active
+    ws_review.title = "Needs Review"
+
+    bold_font = openpyxl.styles.Font(bold=True, name="Arial")
+    wrap_top = openpyxl.styles.Alignment(wrap_text=True, vertical="top")
+    hyperlink_font = openpyxl.styles.Font(
+        color="0000FF", underline="single", name="Arial"
+    )
+    normal_font = openpyxl.styles.Font(name="Arial")
+
+    # Write header row
+    for col_idx, header in enumerate(REVIEW_HEADERS, start=1):
+        cell = ws_review.cell(row=1, column=col_idx, value=header)
+        cell.font = bold_font
+
+    # Map from our internal column names to the REVIEW_HEADERS column positions
+    # REVIEW_HEADERS col positions (1-based):
+    # A=1 Row Number, B=2 Errors(formula), C=3 Suggested PINs, D=4 PIN,
+    # E=5 Suggested Property Address, F=6 Applicant Street Address,
+    # G=7 Local Permit No., H=8 Issue Date, I=9 Desc1, J=10 D2C1, K=11 D2C2,
+    # L=12 D2C3, M=13 Amount, N=14 Assessable, O=15 Addr2, P=16 City/State/Zip,
+    # Q=17 Phone, R=18 Applicant, S=19 Notes, T=20 OccupyDt, U=21 SubmitDt,
+    # V=22 EstCompDt, W=23 MatchedKeywords, X=24 ErrorsResolved
+
+    col_map = {
+        "PIN* [PARID]": 4,
+        "Suggested PINs": 3,
+        "Property Address": 5,  # hyperlink to Cook County viewer
+        "Applicant Street Address* [ADDR1]": 6,
+        "Local Permit No.* [USER28]": 7,
+        "Issue Date* [PERMDT]": 8,
+        "Desc 1* [DESC1]": 9,
+        "Desc 2 Code 1 [USER6]": 10,
+        "Desc 2 Code 2 [USER7]": 11,
+        "Desc 2 Code 3 [USER8]": 12,
+        "Amount* [AMOUNT]": 13,
+        "Assessable [IS_ASSESS]": 14,
+        "Applicant Address 2 [ADDR2]": 15,
+        "Applicant City, State, Zip* [ADDR3]": 16,
+        "Contact Phone* [PHONE]": 17,
+        "Applicant* [USER21]": 18,
+        "Notes [NOTE1]": 19,
+        "Occupy Dt [UDATE1]": 20,
+        "Submit Dt* [CERTDATE]": 21,
+        "Est Comp Dt [UDATE2]": 22,
+        "Matched Keywords": 23,
+    }
+
+    for data_row_idx, (_, row_data) in enumerate(
+        df_needs_review.iterrows(), start=2
+    ):
+        # Col A: original row number (1-based index in the flagged set)
+        ws_review.cell(
+            row=data_row_idx, column=1, value=data_row_idx - 1
+        ).font = normal_font
+
+        # Col B: TEXTJOIN errors formula
+        ws_review.cell(
+            row=data_row_idx,
+            column=2,
+            value=_build_textjoin_errors_formula(data_row_idx),
+        ).font = normal_font
+
+        # Remaining data columns
+        for src_col, dest_col in col_map.items():
+            val = row_data.get(src_col)
+            if pd.isna(val) if not isinstance(val, str) else False:
+                val = None
+            cell = ws_review.cell(row=data_row_idx, column=dest_col, value=val)
+            cell.alignment = wrap_top
+            cell.font = (
+                hyperlink_font
+                if isinstance(val, str) and val.startswith("=HYPERLINK(")
+                else normal_font
+            )
+
+        ws_review.row_dimensions[data_row_idx].height = 15
+
+    # Hide columns
+    for col_idx in REVIEW_HIDDEN_COLS:
+        ws_review.column_dimensions[get_column_letter(col_idx)].hidden = True
+
+    # Autofilter on data range
+    if len(df_needs_review) > 0:
+        ws_review.auto_filter.ref = f"A1:{get_column_letter(len(REVIEW_HEADERS))}{len(df_needs_review) + 1}"
+
+    # --- "Universe of Valid PINs" sheet ---
+    ws_pins = wb.create_sheet("Universe of Valid PINs")
+    ws_pins.cell(row=1, column=1, value="pin").font = bold_font
+
+    # --- Save as .xlsm, transplanting VBA + Power Query from the demo ---
+    # openpyxl cannot write .xlsm natively, so we:
+    #   1. Save the workbook to a temp .xlsx
+    #   2. Re-pack it as .xlsm, injecting binary/XML assets from the demo file
+    import zipfile as _zf
+
+    tmp_xlsx = file_name_review.replace(".xlsm", "_tmp.xlsx")
+    wb.save(tmp_xlsx)
+
+    # The demo .xlsm lives alongside this script in a "templates" folder.
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    _demo_xlsm = os.path.join(
+        _script_dir, "templates", "permits_needing_review.xlsm"
+    )
+
+    # Files transplanted verbatim from the demo into the new workbook
+    _transplant = [
+        "xl/vbaProject.bin",
+        "xl/connections.xml",
+        "xl/queryTables/queryTable1.xml",
+        "xl/tables/_rels/table1.xml.rels",
+        "customXml/item1.xml",
+        "customXml/itemProps1.xml",
+        "customXml/_rels/item1.xml.rels",
+    ]
+
+    with (
+        _zf.ZipFile(tmp_xlsx, "r") as zin,
+        _zf.ZipFile(file_name_review, "w", _zf.ZIP_DEFLATED) as zout,
+        _zf.ZipFile(_demo_xlsm, "r") as zdemo,
+    ):
+        demo_names = set(zdemo.namelist())
+
+        # Patch [Content_Types].xml to register vbaProject.bin and set xlsm type
+        ct_xml = zin.read("[Content_Types].xml").decode("utf-8")
+        if "vbaProject.bin" not in ct_xml:
+            ct_xml = ct_xml.replace(
+                "</Types>",
+                '<Override PartName="/xl/vbaProject.bin" '
+                'ContentType="application/vnd.ms-office.activeX+xml"/>'
+                '<Default Extension="bin" '
+                'ContentType="application/vnd.ms-office.activeX"/>'
+                "</Types>",
+            )
+        ct_xml = ct_xml.replace(
+            'ContentType="application/vnd.openxmlformats-officedocument'
+            '.spreadsheetml.sheet.main+xml"',
+            'ContentType="application/vnd.ms-excel.sheet.macroEnabled.main+xml"',
         )
+        zout.writestr("[Content_Types].xml", ct_xml)
 
-        # Other sheet
-        df_other.index = df_other.index + 1
-        df_other.index.name = "# [LLINE]"
-        df_other = df_other.reset_index()
-        df_other = df_other.reindex(columns=COL_ORDER)
-        df_other.to_excel(
-            writer,
-            sheet_name="Other Errors",
-            index=False,
-            header=False,
-            startrow=1,
+        # Patch xl/_rels/workbook.xml.rels to declare the VBA project relationship
+        rels_xml = zin.read("xl/_rels/workbook.xml.rels").decode("utf-8")
+        if "vbaProject.bin" not in rels_xml:
+            rels_xml = rels_xml.replace(
+                "</Relationships>",
+                '<Relationship Id="rIdVBA" '
+                'Type="http://schemas.microsoft.com/office/2006/'
+                'relationships/vbaProject" '
+                'Target="vbaProject.bin"/>'
+                "</Relationships>",
+            )
+        zout.writestr("xl/_rels/workbook.xml.rels", rels_xml)
+
+        # Copy everything else from the new xlsx unchanged
+        _skip = {"[Content_Types].xml", "xl/_rels/workbook.xml.rels"} | set(
+            _transplant
         )
+        for item in zin.namelist():
+            if item not in _skip:
+                zout.writestr(item, zin.read(item))
 
-        # Assessable Key Words sheet
-        df_keywords = pd.DataFrame(keywords, columns=["Keywords"])
-        df_keywords.to_excel(
-            writer,
-            sheet_name="Assessable Key Words",
-            index=False,
-            header=False,
-            startrow=1,
-        )
+        # Inject the transplanted assets from the demo
+        for name in _transplant:
+            if name in demo_names:
+                zout.writestr(name, zdemo.read(name))
 
-        # Style links, since Excel won't do this automatically
-        wrap_alignment = openpyxl.styles.Alignment(
-            wrap_text=True, vertical="top"
-        )
-
-        hyperlink_font = openpyxl.styles.Font(
-            color="0000FF", underline="single"
-        )
-
-        for sheet_name in ("PIN Errors", "Other Errors"):
-            ws = writer.sheets[sheet_name]
-            header_row = 1
-
-            # Cache header row values
-            header_values = {
-                col: ws.cell(row=header_row, column=col).value
-                for col in range(1, ws.max_column + 1)
-            }
-
-            # Hide columns not in unhidden_columns
-            for col, header_value in header_values.items():
-                if header_value not in unhidden_columns:
-                    ws.column_dimensions[get_column_letter(col)].hidden = True
-
-            # Apply formatting to all cells
-            for row in ws.iter_rows(
-                min_row=header_row + 1,
-                max_row=ws.max_row,
-                min_col=1,
-                max_col=ws.max_column,
-            ):
-                ws.row_dimensions[row[0].row].height = 15
-                for cell in row:
-                    # Wrap text with a designated height so that
-                    # it doesn't print into other columns or
-                    # expand row height.
-                    cell.alignment = wrap_alignment
-
-                    # Style hyperlink formulas
-                    v = cell.value
-                    if isinstance(v, str) and v.startswith("=HYPERLINK("):
-                        cell.font = hyperlink_font
+    os.remove(tmp_xlsx)
+    print(f"Saved review workbook (.xlsm) to {file_name_review}")
 
 
 if __name__ == "__main__":
