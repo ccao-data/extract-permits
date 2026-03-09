@@ -637,20 +637,20 @@ def _build_textjoin_errors_formula(row: int) -> str:
     matching the demo workbook logic."""
     r = row
     return (
-        f'=_xlfn.TEXTJOIN(", ", TRUE,\n'
-        f'  IF(LEN(TRIM(D{r}))=0, "Missing PIN14", ""),\n'
-        f'  IF(COUNTIF(\'Universe of Valid PINs\'!A:A, D{r}) > 0, "", "Provide Valid Pin"),\n'
-        f'  IF(LEN(TRIM(D{r}))<>14, "PIN is not 14 digits", ""),\n'
-        f'  IF(LEN(R{r})>50, "Applicant Name > 50 characters", ""),\n'
-        f'  IF(LEN(F{r})>40, "Address > 40 characters", ""),\n'
-        f'  IF(LEN(S{r})>2000, "Work Description > 2000 characters", ""),\n'
-        f'  IF(AND(ISNUMBER(M{r}), M{r}>2147483647), "Amount exceeds limit", ""),\n'
-        f'  IF(OR(H{r}="", NOT(ISNUMBER(DATEVALUE(H{r})))), "Missing or Invalid Issue Date", ""),\n'
-        f'  IF(OR(M{r}="", NOT(ISNUMBER(M{r}))), "Missing Amount", ""),\n'
-        f'  IF(LEN(TRIM(R{r}))=0, "Missing Applicant", ""),\n'
-        f'  IF(LEN(TRIM(F{r}))=0, "Missing Applicant Street Address", ""),\n'
-        f'  IF(LEN(TRIM(G{r}))=0, "Missing Permit Number", ""),\n'
-        f'  IF(LEN(TRIM(S{r}))=0, "Missing Work Description", "")\n'
+        f'=_xlfn.TEXTJOIN(", ", TRUE, '
+        f'IF(LEN(TRIM(D{r}))=0, "Missing PIN14", ""), '
+        f'IF(COUNTIF(\'Universe of Valid PINs\'!A:A, D{r}) > 0, "", "Provide Valid Pin"), '
+        f'IF(LEN(TRIM(D{r}))<>14, "PIN is not 14 digits", ""), '
+        f'IF(LEN(R{r})>50, "Applicant Name > 50 characters", ""), '
+        f'IF(LEN(F{r})>40, "Address > 40 characters", ""), '
+        f'IF(LEN(S{r})>2000, "Work Description > 2000 characters", ""), '
+        f'IF(AND(ISNUMBER(M{r}), M{r}>2147483647), "Amount exceeds limit", ""), '
+        f'IF(OR(H{r}="", NOT(ISNUMBER(DATEVALUE(H{r})))), "Missing or Invalid Issue Date", ""), '
+        f'IF(OR(M{r}="", NOT(ISNUMBER(M{r}))), "Missing Amount", ""), '
+        f'IF(LEN(TRIM(R{r}))=0, "Missing Applicant", ""), '
+        f'IF(LEN(TRIM(F{r}))=0, "Missing Applicant Street Address", ""), '
+        f'IF(LEN(TRIM(G{r}))=0, "Missing Permit Number", ""), '
+        f'IF(LEN(TRIM(S{r}))=0, "Missing Work Description", "")'
         f")"
     )
 
