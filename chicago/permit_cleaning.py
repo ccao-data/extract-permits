@@ -651,6 +651,7 @@ def _build_textjoin_errors_formula(row: int) -> str:
         f'IF(LEN(TRIM(F{r}))=0, "Missing Applicant Street Address", ""), '
         f'IF(LEN(TRIM(G{r}))=0, "Missing Permit Number", ""), '
         f'IF(LEN(TRIM(S{r}))=0, "Missing Work Description", "")'
+        f")"
     )
 
 
