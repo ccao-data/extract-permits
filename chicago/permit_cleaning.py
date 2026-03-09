@@ -657,35 +657,34 @@ def _build_textjoin_errors_formula(row: int) -> str:
 
 # Column layout for the "Needs Review" sheet, matching the demo workbook exactly
 REVIEW_HEADERS = [
-    "Row Number",  # A - original row number (# [LLINE])
-    "Errors",  # B - TEXTJOIN formula
-    "Suggested PINs",  # C
-    "PIN",  # D - PIN* [PARID]
-    "Suggested Property Address",  # E - hyperlink to Cook County viewer
-    "Applicant Street Address",  # F - Applicant Street Address* [ADDR1]
-    "Local Permit No.",  # G - Local Permit No.* [USER28]
-    "Issue Date",  # H - Issue Date* [PERMDT]
-    "Desc 1* [DESC1]",  # I
-    "Desc 2 Code 1 [USER6]",  # J
-    "Desc 2 Code 2 [USER7]",  # K
-    "Desc 2 Code 3 [USER8]",  # L
-    "Amount",  # M - Amount* [AMOUNT]
-    "Assessable [IS_ASSESS]",  # N
-    "Applicant Address 2 [ADDR2]",  # O
-    "Applicant City, State, Zip* [ADDR3]",  # P
-    "Contact Phone* [PHONE]",  # Q
-    "Applicant",  # R - Applicant* [USER21]
-    "Work Description",  # S - Notes [NOTE1] (renamed for clarity)
-    "Occupy Dt [UDATE1]",  # T
-    "Submit Dt* [CERTDATE]",  # U
-    "Est Comp Dt [UDATE2]",  # V
-    "Matched Keywords",  # W
-    "Errors are Resolved",  # X
-    "Reviewer Name",  # Y - empty, filled by reviewer
-    "Reviewer Notes",  # Z - empty, filled by reviewer
+    "Row Number",
+    "Errors",  # TEXTJOIN formula
+    "Suggested PINs",
+    "PIN",
+    "Suggested Property Address",  # hyperlink to Cook County viewer
+    "Applicant Street Address",
+    "Local Permit No.",
+    "Issue Date",
+    "Desc 1* [DESC1]",
+    "Desc 2 Code 1 [USER6]",
+    "Desc 2 Code 2 [USER7]",
+    "Desc 2 Code 3 [USER8]",
+    "Amount",
+    "Assessable [IS_ASSESS]",
+    "Applicant Address 2 [ADDR2]",
+    "Applicant City, State, Zip* [ADDR3]",
+    "Contact Phone* [PHONE]",
+    "Applicant",
+    "Work Description",  # Notes [NOTE1] (renamed for clarity)
+    "Occupy Dt [UDATE1]",
+    "Submit Dt* [CERTDATE]",
+    "Est Comp Dt [UDATE2]",
+    "Matched Keywords",
+    "Errors are Resolved",
+    "Reviewer Name",  # empty, filled by reviewer
+    "Reviewer Notes",  # empty, filled by reviewer
 ]
 
-# Column widths matching the demo (by index, 1-based)
 REVIEW_HIDDEN_COLS = {9, 10, 11, 12, 14, 15, 17, 20, 21, 22}
 
 
@@ -751,51 +750,45 @@ def save_xlsx_files(df, max_rows, file_base_name, chicago_pin_universe):
         Always writes the sheet (with headers) even if df_review is empty or None."""
         n_data_rows = len(df_review) if df_review is not None else 0
 
-        _base = {
+        L = {
             "font_name": "Arial",
             "locked": True,
             "align": "left",
             "text_wrap": False,
-            "num_format": "0.###############",
+            "num_format": "0.##",
         }
-        _unlocked = {
+        U = {
             "font_name": "Arial",
             "locked": False,
             "align": "left",
             "text_wrap": False,
-            "num_format": "0.###############",
+            "num_format": "0.##",
         }
-        bold = workbook.add_format({**_base, "bold": True})
-        normal = workbook.add_format({**_base})
-        wrap = workbook.add_format({**_base})
-        hyperlink_fmt = workbook.add_format(
-            {**_base, "font_color": "blue", "underline": True}
+
+        def fmt(d):
+            return workbook.add_format(d)
+
+        bold = fmt({**L, "bold": True})
+        normal = fmt(L)
+        wrap = fmt(L)
+        hidden_col = fmt(L)
+        hyperlink_fmt = fmt({**L, "font_color": "blue", "underline": True})
+        unlocked_normal = fmt(U)
+        unlocked_wrap = fmt(U)
+        unlocked_wrap_col = fmt({**U, "text_wrap": True})
+        checkbox_unlocked = fmt({**U, "align": "center"})
+        pin_fmt = fmt({**L, "num_format": "@"})
+        pin_unlocked_fmt = fmt({**U, "num_format": "@"})
+        hyperlink_unlocked_fmt = fmt(
+            {**U, "font_color": "blue", "underline": True}
         )
-        hidden_col = workbook.add_format({**_base})
-        checkbox_unlocked = workbook.add_format(
-            {**_unlocked, "align": "center"}
-        )
-        unlocked_wrap = workbook.add_format({**_unlocked})
-        unlocked_normal = workbook.add_format({**_unlocked})
-        unlocked_wrap_col = workbook.add_format(
-            {**_unlocked, "text_wrap": True}
-        )  # for Suggested PINs col
-        pin_fmt = workbook.add_format(
-            {**_base, "num_format": "@"}
-        )  # text — preserves leading zeros
-        pin_unlocked_fmt = workbook.add_format(
-            {**_unlocked, "num_format": "@"}
-        )  # text, unlocked
-        hyperlink_unlocked_fmt = workbook.add_format(
-            {**_unlocked, "font_color": "blue", "underline": True}
-        )  # hyperlink, unlocked
 
         # --- Sheet 1: Needs Review ---
         ws_review = workbook.add_worksheet(sheet_name)
         ws_review.freeze_panes(1, 0)
 
         # Setting an explicit alignment on every column prevents text overflow
-        # into adjacent empty cells without needing to write "" placeholders.
+        # into adjacent empty cells.
         # Editable columns use unlocked_normal as column default so cell-level
         # locked/unlocked formats aren't overridden by the column default.
         for _ci in range(len(REVIEW_HEADERS)):
@@ -803,7 +796,7 @@ def save_xlsx_files(df, max_rows, file_base_name, chicago_pin_universe):
                 col_fmt = pin_unlocked_fmt  # PIN col: text format, unlocked when errors
             elif _ci in {2, 5, 6, 7, 12, 17, 18, 23, 24, 25}:
                 col_fmt = (
-                    unlocked_normal  # col 2 = Suggested PINs, also unlocked
+                    unlocked_normal  # col 2 = Suggested PINs, always unlocked
                 )
             else:
                 col_fmt = normal
@@ -814,13 +807,13 @@ def save_xlsx_files(df, max_rows, file_base_name, chicago_pin_universe):
         )  # Suggested PINs wraps to prevent overflow
         ws_review.set_column(
             18, 18, 50, unlocked_normal
-        )  # Work Description wider
+        )  # Work Description wider for better readability
 
         # Write header row
         for col_idx, header in enumerate(REVIEW_HEADERS):
             ws_review.write(0, col_idx, header, bold)
 
-        # col_map: source dataframe column -> 0-based column index in output
+        # col_map: source dataframe column
         col_map = {
             "PIN* [PARID]": 3,
             "Suggested PINs": 2,
@@ -843,7 +836,7 @@ def save_xlsx_files(df, max_rows, file_base_name, chicago_pin_universe):
             "Submit Dt* [CERTDATE]": 20,
             "Est Comp Dt [UDATE2]": 21,
             "Matched Keywords": 22,
-            # col 23 = "Errors are Resolved" written per-row below
+            # col 23 = "Errors are Resolved" written below
         }
 
         for row_idx, (_, row_data) in enumerate(
@@ -851,7 +844,7 @@ def save_xlsx_files(df, max_rows, file_base_name, chicago_pin_universe):
         ):
             xl_row = row_idx
 
-            # Python-side pass/fail per editable column — determines locked vs unlocked
+            # pass/fail per editable column — determines locked vs unlocked
             pin_val = str(row_data.get("PIN* [PARID]", "") or "").strip()
             applicant_val = str(
                 row_data.get("Applicant* [USER21]", "") or ""
@@ -924,218 +917,134 @@ def save_xlsx_files(df, max_rows, file_base_name, chicago_pin_universe):
                             if error_cols.get(dest_col, False)
                             else pin_fmt
                         )
-                    # Col 2 (Suggested PINs) always unlocked
+                    # Suggested PINs always unlocked
                     if dest_col == 2:
                         fmt = unlocked_wrap_col
                     ws_review.write(xl_row, dest_col, val, fmt)
 
-            # Col X (23): checkbox — always unlocked
+            # checkbox — always unlocked
             ws_review.insert_checkbox(xl_row, 23, False, checkbox_unlocked)
-            # Cols Y (24) and Z (25): Reviewer Name and Reviewer Notes — always unlocked, empty
+            # Reviewer Name and Reviewer Notes — always unlocked, empty
 
             ws_review.set_row(
                 xl_row, None
             )  # auto height to accommodate wrapped Suggested PINs
 
-        # Row-level conditional formatting based on checkbox (col X) and errors (col B):
-        #   Light blue    — checkbox checked (resolved)
-        #   Pastel orange — unchecked AND errors exist
-        #   Pastel red    — unchecked AND no errors
-        # Apply across all 24 columns (A:X). Priority is determined by order of
-        # add_format calls — first rule that matches wins in Excel.
+        # Row conditional formatting: orange=no errors/unchecked, red=has errors, blue=resolved
         if n_data_rows > 0:
-            last_col = len(REVIEW_HEADERS) - 1  # 0-based index of last col (Z)
+            last_col = len(REVIEW_HEADERS) - 1
+            for criteria, color in [
+                ('=AND($B2="",$X2=FALSE)', "#FFD5A8"),
+                ('=$B2<>""', "#FFB3B3"),
+                ('=AND($X2=TRUE,$B2="")', "#B8D4E8"),
+            ]:
+                ws_review.conditional_format(
+                    1,
+                    0,
+                    n_data_rows,
+                    last_col,
+                    {
+                        "type": "formula",
+                        "criteria": criteria,
+                        "format": workbook.add_format({"bg_color": color}),
+                    },
+                )
 
-            fmt_blue = workbook.add_format({"bg_color": "#B8D4E8"})
-            fmt_orange = workbook.add_format({"bg_color": "#FFD5A8"})
-            fmt_red = workbook.add_format({"bg_color": "#FFB3B3"})
-
-            # Rule 1 (highest priority): orange — unchecked AND no errors
-            ws_review.conditional_format(
-                1,
-                0,
-                n_data_rows,
-                last_col,
-                {
-                    "type": "formula",
-                    "criteria": '=AND($B2="",$X2=FALSE)',
-                    "format": fmt_orange,
-                },
-            )
-
-            # Rule 2: red — errors exist (B is non-empty)
-            ws_review.conditional_format(
-                1,
-                0,
-                n_data_rows,
-                last_col,
-                {
-                    "type": "formula",
-                    "criteria": '=$B2<>""',
-                    "format": fmt_red,
-                },
-            )
-
-            # Rule 3: blue — checked AND no errors
-            ws_review.conditional_format(
-                1,
-                0,
-                n_data_rows,
-                last_col,
-                {
-                    "type": "formula",
-                    "criteria": '=AND($X2=TRUE,$B2="")',
-                    "format": fmt_blue,
-                },
-            )
-
-        # Data validation on editable columns — prevents analyst entering values
-        # that would introduce new errors. These are input constraints, not locks.
-        # Anchored to row 2; Excel evaluates relatively for each row.
+        # Data validations — input constraints on editable columns
         if n_data_rows > 0:
-            # PIN: 14-char text matching universe
-            ws_review.data_validation(
-                1,
-                3,
-                n_data_rows,
+
+            def dv(col, opts):
+                ws_review.data_validation(
+                    1,
+                    col,
+                    n_data_rows,
+                    col,
+                    {"show_error": True, "error_type": "stop", **opts},
+                )
+
+            dv(
                 3,
                 {
                     "validate": "custom",
                     "value": "=AND(LEN(TRIM(D2))=14,COUNTIF('Universe of Valid PINs'!$A:$A,D2)>0)",
                     "ignore_blank": False,
-                    "error_type": "stop",
                     "error_title": "Invalid PIN",
                     "error_message": "PIN must be 14 digits and exist in the Universe of Valid PINs.",
-                    "show_error": True,
                 },
             )
-            # Address: text up to 40 chars
-            ws_review.data_validation(
-                1,
-                5,
-                n_data_rows,
+            dv(
                 5,
                 {
                     "validate": "text length",
                     "criteria": "between",
                     "minimum": 1,
                     "maximum": 40,
-                    "error_type": "stop",
                     "error_title": "Invalid Address",
                     "error_message": "Address must be between 1 and 40 characters.",
-                    "show_error": True,
                 },
             )
-            # Permit No.: text, at least 1 char
-            ws_review.data_validation(
-                1,
-                6,
-                n_data_rows,
+            dv(
                 6,
                 {
                     "validate": "text length",
                     "criteria": "greater than or equal to",
                     "value": 1,
-                    "error_type": "stop",
                     "error_title": "Invalid Permit No.",
                     "error_message": "Permit No. must not be empty.",
-                    "show_error": True,
                 },
             )
-            # Issue Date: must be a valid date
-            ws_review.data_validation(
-                1,
-                7,
-                n_data_rows,
+            dv(
                 7,
                 {
                     "validate": "date",
                     "criteria": "greater than or equal to",
                     "value": "1900-01-01",
-                    "error_type": "stop",
                     "error_title": "Invalid Date",
                     "error_message": "Issue Date must be a valid date.",
-                    "show_error": True,
                 },
             )
-            # Amount: whole number 1–2147483647
-            ws_review.data_validation(
-                1,
-                12,
-                n_data_rows,
+            dv(
                 12,
                 {
                     "validate": "integer",
                     "criteria": "between",
                     "minimum": 1,
                     "maximum": 2147483647,
-                    "error_type": "stop",
                     "error_title": "Invalid Amount",
                     "error_message": "Amount must be a whole number between 1 and 2,147,483,647.",
-                    "show_error": True,
                 },
             )
-            # Applicant: text up to 50 chars
-            ws_review.data_validation(
-                1,
-                17,
-                n_data_rows,
+            dv(
                 17,
                 {
                     "validate": "text length",
                     "criteria": "between",
                     "minimum": 1,
                     "maximum": 50,
-                    "error_type": "stop",
                     "error_title": "Invalid Applicant",
-                    "error_message": "Work Description must be between 1 and 2000 characters.",
-                    "show_error": True,
+                    "error_message": "Applicant must be between 1 and 50 characters.",
                 },
             )
-            # Checkbox: text up to 2000 chars
-            ws_review.data_validation(
-                1,
-                18,
-                n_data_rows,
+            dv(
                 18,
                 {
                     "validate": "text length",
                     "criteria": "between",
                     "minimum": 1,
                     "maximum": 2000,
-                    "error_type": "stop",
                     "error_title": "Invalid Work Description",
-                    "error_message": "Applicant must be between 1 and 50 characters.",
-                    "show_error": True,
+                    "error_message": "Work Description must be between 1 and 2000 characters.",
                 },
             )
-            # Checkbox: only allow checking when no errors
-            ws_review.data_validation(
-                1,
-                23,
-                n_data_rows,
+            dv(
                 23,
                 {
                     "validate": "custom",
                     "value": '=$B2=""',
-                    "error_type": "stop",
                     "error_title": "Errors not resolved",
                     "error_message": "This row still has errors in column B. Fix them before marking resolved.",
-                    "show_error": True,
                 },
             )
-
-        # Hide specific columns
-        for col_idx in REVIEW_HIDDEN_COLS:
-            ws_review.set_column(
-                col_idx - 1, col_idx - 1, 25, hidden_col, {"hidden": True}
-            )
-
-        if n_data_rows > 0:
-            ws_review.autofilter(0, 0, n_data_rows, len(REVIEW_HEADERS) - 1)
-
-        # Suggested PINs (col C): always warns on edit via an impossible match
-        if n_data_rows > 0:
             ws_review.data_validation(
                 1,
                 2,
@@ -1150,8 +1059,15 @@ def save_xlsx_files(df, max_rows, file_base_name, chicago_pin_universe):
                     "show_error": True,
                 },
             )
+            ws_review.autofilter(0, 0, n_data_rows, len(REVIEW_HEADERS) - 1)
 
-        # Protect sheet as final step
+        # Hide specific columns
+        for col_idx in REVIEW_HIDDEN_COLS:
+            ws_review.set_column(
+                col_idx - 1, col_idx - 1, 25, hidden_col, {"hidden": True}
+            )
+
+        # Protect sheet
         ws_review.protect(
             "",
             {
@@ -1179,7 +1095,7 @@ def save_xlsx_files(df, max_rows, file_base_name, chicago_pin_universe):
         "locked": True,
         "align": "left",
         "text_wrap": False,
-        "num_format": "0.###############",
+        "num_format": "0",
     }
     bold_u = workbook.add_format({**_base_u, "bold": True})
     pin_fmt_u = workbook.add_format({**_base_u, "num_format": "@"})
