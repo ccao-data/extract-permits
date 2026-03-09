@@ -26,11 +26,9 @@ import sys
 from datetime import datetime
 
 import numpy as np
-import openpyxl
-import openpyxl.styles
 import pandas as pd
 import requests
-from openpyxl.utils import get_column_letter
+import xlsxwriter
 from pyathena import connect
 from pyathena.cursor import Cursor
 from pyathena.pandas.util import as_pandas
@@ -677,19 +675,21 @@ REVIEW_HEADERS = [
     "Applicant City, State, Zip* [ADDR3]",  # P
     "Contact Phone* [PHONE]",  # Q
     "Applicant",  # R - Applicant* [USER21]
-    "Notes",  # S - Notes [NOTE1]
+    "Work Description",  # S - Notes [NOTE1] (renamed for clarity)
     "Occupy Dt [UDATE1]",  # T
     "Submit Dt* [CERTDATE]",  # U
     "Est Comp Dt [UDATE2]",  # V
     "Matched Keywords",  # W
     "Errors are Resolved",  # X
+    "Reviewer Name",  # Y - empty, filled by reviewer
+    "Reviewer Notes",  # Z - empty, filled by reviewer
 ]
 
 # Column widths matching the demo (by index, 1-based)
 REVIEW_HIDDEN_COLS = {9, 10, 11, 12, 14, 15, 17, 20, 21, 22}
 
 
-def save_xlsx_files(df, max_rows, file_base_name):
+def save_xlsx_files(df, max_rows, file_base_name, chicago_pin_universe):
     # Separate rows ready for upload from those needing review
     df_ready = df[
         (df["FLAGS, TOTAL - PIN"] == 0) & (df["FLAGS, TOTAL - OTHER"] == 0)
@@ -708,13 +708,17 @@ def save_xlsx_files(df, max_rows, file_base_name):
         ]
     )
 
-    # All rows with any flag go to a single "Needs Review" sheet
-    df_needs_review = df[
-        (df["FLAGS, TOTAL - PIN"] > 0) | (df["FLAGS, TOTAL - OTHER"] > 0)
+    # PIN errors: any row with a PIN flag (may also have other errors)
+    df_pin_errors = df[df["FLAGS, TOTAL - PIN"] > 0].reset_index(drop=True)
+
+    # Other errors: rows with non-PIN errors only
+    df_other_errors = df[
+        (df["FLAGS, TOTAL - PIN"] == 0) & (df["FLAGS, TOTAL - OTHER"] > 0)
     ].reset_index(drop=True)
 
     print("# rows ready for upload: ", len(df_ready))
-    print("# rows needing review: ", len(df_needs_review))
+    print("# rows with PIN errors: ", len(df_pin_errors))
+    print("# rows with other errors: ", len(df_other_errors))
 
     folder_for_files_ready = (
         datetime.today().date().strftime("files_for_smartfile_%Y_%m_%d")
@@ -742,184 +746,452 @@ def save_xlsx_files(df, max_rows, file_base_name):
         )
         file_dataframe.to_excel(file_name, index=False, engine="xlsxwriter")
 
-    # Build the review workbook with the new single-sheet structure
+    def _write_review_sheet(df_review, workbook, sheet_name):
+        """Write one Needs Review sheet into an existing xlsxwriter workbook.
+        Always writes the sheet (with headers) even if df_review is empty or None."""
+        n_data_rows = len(df_review) if df_review is not None else 0
+
+        _base = {
+            "font_name": "Arial",
+            "locked": True,
+            "align": "left",
+            "text_wrap": False,
+            "num_format": "0.###############",
+        }
+        _unlocked = {
+            "font_name": "Arial",
+            "locked": False,
+            "align": "left",
+            "text_wrap": False,
+            "num_format": "0.###############",
+        }
+        bold = workbook.add_format({**_base, "bold": True})
+        normal = workbook.add_format({**_base})
+        wrap = workbook.add_format({**_base})
+        hyperlink_fmt = workbook.add_format(
+            {**_base, "font_color": "blue", "underline": True}
+        )
+        hidden_col = workbook.add_format({**_base})
+        checkbox_unlocked = workbook.add_format(
+            {**_unlocked, "align": "center"}
+        )
+        unlocked_wrap = workbook.add_format({**_unlocked})
+        unlocked_normal = workbook.add_format({**_unlocked})
+        unlocked_wrap_col = workbook.add_format(
+            {**_unlocked, "text_wrap": True}
+        )  # for Suggested PINs col
+        pin_fmt = workbook.add_format(
+            {**_base, "num_format": "@"}
+        )  # text — preserves leading zeros
+        pin_unlocked_fmt = workbook.add_format(
+            {**_unlocked, "num_format": "@"}
+        )  # text, unlocked
+        hyperlink_unlocked_fmt = workbook.add_format(
+            {**_unlocked, "font_color": "blue", "underline": True}
+        )  # hyperlink, unlocked
+
+        # --- Sheet 1: Needs Review ---
+        ws_review = workbook.add_worksheet(sheet_name)
+        ws_review.freeze_panes(1, 0)
+
+        # Setting an explicit alignment on every column prevents text overflow
+        # into adjacent empty cells without needing to write "" placeholders.
+        # Editable columns use unlocked_normal as column default so cell-level
+        # locked/unlocked formats aren't overridden by the column default.
+        for _ci in range(len(REVIEW_HEADERS)):
+            if _ci == 3:
+                col_fmt = pin_unlocked_fmt  # PIN col: text format, unlocked when errors
+            elif _ci in {2, 5, 6, 7, 12, 17, 18, 23, 24, 25}:
+                col_fmt = (
+                    unlocked_normal  # col 2 = Suggested PINs, also unlocked
+                )
+            else:
+                col_fmt = normal
+            ws_review.set_column(_ci, _ci, 25, col_fmt)
+        ws_review.set_column(1, 1, 67, normal)  # Errors column wider
+        ws_review.set_column(
+            2, 2, 50, unlocked_wrap_col
+        )  # Suggested PINs wraps to prevent overflow
+        ws_review.set_column(
+            18, 18, 50, unlocked_normal
+        )  # Work Description wider
+
+        # Write header row
+        for col_idx, header in enumerate(REVIEW_HEADERS):
+            ws_review.write(0, col_idx, header, bold)
+
+        # col_map: source dataframe column -> 0-based column index in output
+        col_map = {
+            "PIN* [PARID]": 3,
+            "Suggested PINs": 2,
+            "Property Address": 4,
+            "Applicant Street Address* [ADDR1]": 5,
+            "Local Permit No.* [USER28]": 6,
+            "Issue Date* [PERMDT]": 7,
+            "Desc 1* [DESC1]": 8,
+            "Desc 2 Code 1 [USER6]": 9,
+            "Desc 2 Code 2 [USER7]": 10,
+            "Desc 2 Code 3 [USER8]": 11,
+            "Amount* [AMOUNT]": 12,
+            "Assessable [IS_ASSESS]": 13,
+            "Applicant Address 2 [ADDR2]": 14,
+            "Applicant City, State, Zip* [ADDR3]": 15,
+            "Contact Phone* [PHONE]": 16,
+            "Applicant* [USER21]": 17,
+            "Notes [NOTE1]": 18,  # displayed as "Work Description"
+            "Occupy Dt [UDATE1]": 19,
+            "Submit Dt* [CERTDATE]": 20,
+            "Est Comp Dt [UDATE2]": 21,
+            "Matched Keywords": 22,
+            # col 23 = "Errors are Resolved" written per-row below
+        }
+
+        for row_idx, (_, row_data) in enumerate(
+            df_review.iterrows() if df_review is not None else [], start=1
+        ):
+            xl_row = row_idx
+
+            # Python-side pass/fail per editable column — determines locked vs unlocked
+            pin_val = str(row_data.get("PIN* [PARID]", "") or "").strip()
+            applicant_val = str(
+                row_data.get("Applicant* [USER21]", "") or ""
+            ).strip()
+            address_val = str(
+                row_data.get("Applicant Street Address* [ADDR1]", "") or ""
+            ).strip()
+            notes_val = str(row_data.get("Notes [NOTE1]", "") or "").strip()
+            amount_val = row_data.get("Amount* [AMOUNT]", None)
+            issue_date_val = str(
+                row_data.get("Issue Date* [PERMDT]", "") or ""
+            ).strip()
+            permit_val = str(
+                row_data.get("Local Permit No.* [USER28]", "") or ""
+            ).strip()
+            pin_flag = row_data.get("FLAG, INVALID: PIN* [PARID]", 0)
+            pin_empty_flag = row_data.get("FLAG, EMPTY: PIN", 0)
+            try:
+                amount_num = (
+                    float(amount_val)
+                    if amount_val is not None and str(amount_val).strip() != ""
+                    else None
+                )
+                amount_error = amount_num is None or amount_num > 2147483647
+            except (ValueError, TypeError):
+                amount_error = True
+
+            # True = cell fails check = unlocked for editing
+            error_cols = {
+                3: bool(pin_flag)
+                or bool(pin_empty_flag)
+                or len(pin_val) != 14,
+                5: len(address_val) == 0 or len(address_val) > 40,
+                6: len(permit_val) == 0,
+                7: len(issue_date_val) == 0,
+                12: amount_error,
+                17: len(applicant_val) == 0 or len(applicant_val) > 50,
+                18: len(notes_val) == 0 or len(notes_val) > 2000,
+            }
+
+            ws_review.write(xl_row, 0, row_idx, normal)
+            ws_review.write_formula(
+                xl_row, 1, _build_textjoin_errors_formula(xl_row + 1), normal
+            )
+            for src_col, dest_col in col_map.items():
+                val = row_data.get(src_col)
+                if not isinstance(val, str) and pd.isna(val):
+                    val = None
+                fmt = (
+                    unlocked_wrap if error_cols.get(dest_col, False) else wrap
+                )
+                if val is None:
+                    pass
+                elif isinstance(val, str) and val.startswith("=HYPERLINK("):
+                    if dest_col == 2:
+                        # Single PIN — restore as clickable hyperlink with unlocked format
+                        ws_review.write_formula(
+                            xl_row, dest_col, val, hyperlink_unlocked_fmt
+                        )
+                    else:
+                        ws_review.write_formula(
+                            xl_row, dest_col, val, hyperlink_fmt
+                        )
+                else:
+                    # Zero-pad PIN to 14 digits at write time, use text format
+                    if dest_col == 3 and val and not str(val).startswith("="):
+                        val = str(val).zfill(14)
+                        fmt = (
+                            pin_unlocked_fmt
+                            if error_cols.get(dest_col, False)
+                            else pin_fmt
+                        )
+                    # Col 2 (Suggested PINs) always unlocked
+                    if dest_col == 2:
+                        fmt = unlocked_wrap_col
+                    ws_review.write(xl_row, dest_col, val, fmt)
+
+            # Col X (23): checkbox — always unlocked
+            ws_review.insert_checkbox(xl_row, 23, False, checkbox_unlocked)
+            # Cols Y (24) and Z (25): Reviewer Name and Reviewer Notes — always unlocked, empty
+
+            ws_review.set_row(
+                xl_row, None
+            )  # auto height to accommodate wrapped Suggested PINs
+
+        # Row-level conditional formatting based on checkbox (col X) and errors (col B):
+        #   Light blue    — checkbox checked (resolved)
+        #   Pastel orange — unchecked AND errors exist
+        #   Pastel red    — unchecked AND no errors
+        # Apply across all 24 columns (A:X). Priority is determined by order of
+        # add_format calls — first rule that matches wins in Excel.
+        if n_data_rows > 0:
+            last_col = len(REVIEW_HEADERS) - 1  # 0-based index of last col (Z)
+
+            fmt_blue = workbook.add_format({"bg_color": "#B8D4E8"})
+            fmt_orange = workbook.add_format({"bg_color": "#FFD5A8"})
+            fmt_red = workbook.add_format({"bg_color": "#FFB3B3"})
+
+            # Rule 1 (highest priority): orange — unchecked AND no errors
+            ws_review.conditional_format(
+                1,
+                0,
+                n_data_rows,
+                last_col,
+                {
+                    "type": "formula",
+                    "criteria": '=AND($B2="",$X2=FALSE)',
+                    "format": fmt_orange,
+                },
+            )
+
+            # Rule 2: red — errors exist (B is non-empty)
+            ws_review.conditional_format(
+                1,
+                0,
+                n_data_rows,
+                last_col,
+                {
+                    "type": "formula",
+                    "criteria": '=$B2<>""',
+                    "format": fmt_red,
+                },
+            )
+
+            # Rule 3: blue — checked AND no errors
+            ws_review.conditional_format(
+                1,
+                0,
+                n_data_rows,
+                last_col,
+                {
+                    "type": "formula",
+                    "criteria": '=AND($X2=TRUE,$B2="")',
+                    "format": fmt_blue,
+                },
+            )
+
+        # Data validation on editable columns — prevents analyst entering values
+        # that would introduce new errors. These are input constraints, not locks.
+        # Anchored to row 2; Excel evaluates relatively for each row.
+        if n_data_rows > 0:
+            # PIN: 14-char text matching universe
+            ws_review.data_validation(
+                1,
+                3,
+                n_data_rows,
+                3,
+                {
+                    "validate": "custom",
+                    "value": "=AND(LEN(TRIM(D2))=14,COUNTIF('Universe of Valid PINs'!$A:$A,D2)>0)",
+                    "ignore_blank": False,
+                    "error_type": "stop",
+                    "error_title": "Invalid PIN",
+                    "error_message": "PIN must be 14 digits and exist in the Universe of Valid PINs.",
+                    "show_error": True,
+                },
+            )
+            # Address: text up to 40 chars
+            ws_review.data_validation(
+                1,
+                5,
+                n_data_rows,
+                5,
+                {
+                    "validate": "text length",
+                    "criteria": "between",
+                    "minimum": 1,
+                    "maximum": 40,
+                    "error_type": "stop",
+                    "error_title": "Invalid Address",
+                    "error_message": "Address must be between 1 and 40 characters.",
+                    "show_error": True,
+                },
+            )
+            # Permit No.: text, at least 1 char
+            ws_review.data_validation(
+                1,
+                6,
+                n_data_rows,
+                6,
+                {
+                    "validate": "text length",
+                    "criteria": "greater than or equal to",
+                    "value": 1,
+                    "error_type": "stop",
+                    "error_title": "Invalid Permit No.",
+                    "error_message": "Permit No. must not be empty.",
+                    "show_error": True,
+                },
+            )
+            # Issue Date: must be a valid date
+            ws_review.data_validation(
+                1,
+                7,
+                n_data_rows,
+                7,
+                {
+                    "validate": "date",
+                    "criteria": "greater than or equal to",
+                    "value": "1900-01-01",
+                    "error_type": "stop",
+                    "error_title": "Invalid Date",
+                    "error_message": "Issue Date must be a valid date.",
+                    "show_error": True,
+                },
+            )
+            # Amount: whole number 1–2147483647
+            ws_review.data_validation(
+                1,
+                12,
+                n_data_rows,
+                12,
+                {
+                    "validate": "integer",
+                    "criteria": "between",
+                    "minimum": 1,
+                    "maximum": 2147483647,
+                    "error_type": "stop",
+                    "error_title": "Invalid Amount",
+                    "error_message": "Amount must be a whole number between 1 and 2,147,483,647.",
+                    "show_error": True,
+                },
+            )
+            # Applicant: text up to 50 chars
+            ws_review.data_validation(
+                1,
+                17,
+                n_data_rows,
+                17,
+                {
+                    "validate": "text length",
+                    "criteria": "between",
+                    "minimum": 1,
+                    "maximum": 50,
+                    "error_type": "stop",
+                    "error_title": "Invalid Applicant",
+                    "error_message": "Work Description must be between 1 and 2000 characters.",
+                    "show_error": True,
+                },
+            )
+            # Checkbox: text up to 2000 chars
+            ws_review.data_validation(
+                1,
+                18,
+                n_data_rows,
+                18,
+                {
+                    "validate": "text length",
+                    "criteria": "between",
+                    "minimum": 1,
+                    "maximum": 2000,
+                    "error_type": "stop",
+                    "error_title": "Invalid Work Description",
+                    "error_message": "Applicant must be between 1 and 50 characters.",
+                    "show_error": True,
+                },
+            )
+            # Checkbox: only allow checking when no errors
+            ws_review.data_validation(
+                1,
+                23,
+                n_data_rows,
+                23,
+                {
+                    "validate": "custom",
+                    "value": '=$B2=""',
+                    "error_type": "stop",
+                    "error_title": "Errors not resolved",
+                    "error_message": "This row still has errors in column B. Fix them before marking resolved.",
+                    "show_error": True,
+                },
+            )
+
+        # Hide specific columns
+        for col_idx in REVIEW_HIDDEN_COLS:
+            ws_review.set_column(
+                col_idx - 1, col_idx - 1, 25, hidden_col, {"hidden": True}
+            )
+
+        if n_data_rows > 0:
+            ws_review.autofilter(0, 0, n_data_rows, len(REVIEW_HEADERS) - 1)
+
+        # Suggested PINs (col C): always warns on edit via an impossible match
+        if n_data_rows > 0:
+            ws_review.data_validation(
+                1,
+                2,
+                n_data_rows,
+                2,
+                {
+                    "validate": "custom",
+                    "value": '=C2="343343434343"',
+                    "error_type": "warning",
+                    "error_title": "Suggested PINs",
+                    "error_message": "Make sure that changes to PIN values are in PIN column.",
+                    "show_error": True,
+                },
+            )
+
+        # Protect sheet as final step
+        ws_review.protect(
+            "",
+            {
+                "sheet": True,
+                "select_locked_cells": True,
+                "select_unlocked_cells": True,
+                "format_cells": False,
+                "sort": True,
+                "autofilter": True,
+            },
+        )
+
+    # Build single combined review workbook with two sheets
     file_name_review = os.path.join(
-        folder_for_files_review, file_base_name + "needing_review.xlsm"
+        folder_for_files_review, file_base_name + "needing_review.xlsx"
     )
+    workbook = xlsxwriter.Workbook(file_name_review)
 
-    wb = openpyxl.Workbook()
+    _write_review_sheet(df_pin_errors, workbook, "PIN Errors")
+    _write_review_sheet(df_other_errors, workbook, "Other Errors")
 
-    # --- "Needs Review" sheet ---
-    ws_review = wb.active
-    ws_review.title = "Needs Review"
-
-    bold_font = openpyxl.styles.Font(bold=True, name="Arial")
-    wrap_top = openpyxl.styles.Alignment(wrap_text=True, vertical="top")
-    hyperlink_font = openpyxl.styles.Font(
-        color="0000FF", underline="single", name="Arial"
-    )
-    normal_font = openpyxl.styles.Font(name="Arial")
-
-    # Write header row
-    for col_idx, header in enumerate(REVIEW_HEADERS, start=1):
-        cell = ws_review.cell(row=1, column=col_idx, value=header)
-        cell.font = bold_font
-
-    # Map from our internal column names to the REVIEW_HEADERS column positions
-    # REVIEW_HEADERS col positions (1-based):
-    # A=1 Row Number, B=2 Errors(formula), C=3 Suggested PINs, D=4 PIN,
-    # E=5 Suggested Property Address, F=6 Applicant Street Address,
-    # G=7 Local Permit No., H=8 Issue Date, I=9 Desc1, J=10 D2C1, K=11 D2C2,
-    # L=12 D2C3, M=13 Amount, N=14 Assessable, O=15 Addr2, P=16 City/State/Zip,
-    # Q=17 Phone, R=18 Applicant, S=19 Notes, T=20 OccupyDt, U=21 SubmitDt,
-    # V=22 EstCompDt, W=23 MatchedKeywords, X=24 ErrorsResolved
-
-    col_map = {
-        "PIN* [PARID]": 4,
-        "Suggested PINs": 3,
-        "Property Address": 5,  # hyperlink to Cook County viewer
-        "Applicant Street Address* [ADDR1]": 6,
-        "Local Permit No.* [USER28]": 7,
-        "Issue Date* [PERMDT]": 8,
-        "Desc 1* [DESC1]": 9,
-        "Desc 2 Code 1 [USER6]": 10,
-        "Desc 2 Code 2 [USER7]": 11,
-        "Desc 2 Code 3 [USER8]": 12,
-        "Amount* [AMOUNT]": 13,
-        "Assessable [IS_ASSESS]": 14,
-        "Applicant Address 2 [ADDR2]": 15,
-        "Applicant City, State, Zip* [ADDR3]": 16,
-        "Contact Phone* [PHONE]": 17,
-        "Applicant* [USER21]": 18,
-        "Notes [NOTE1]": 19,
-        "Occupy Dt [UDATE1]": 20,
-        "Submit Dt* [CERTDATE]": 21,
-        "Est Comp Dt [UDATE2]": 22,
-        "Matched Keywords": 23,
+    # Universe of Valid PINs sheet — shared across both review sheets
+    _base_u = {
+        "font_name": "Arial",
+        "locked": True,
+        "align": "left",
+        "text_wrap": False,
+        "num_format": "0.###############",
     }
+    bold_u = workbook.add_format({**_base_u, "bold": True})
+    pin_fmt_u = workbook.add_format({**_base_u, "num_format": "@"})
+    ws_pins = workbook.add_worksheet("Universe of Valid PINs")
+    ws_pins.set_column(0, 0, 16, pin_fmt_u)
+    ws_pins.write(0, 0, "pin", bold_u)
+    for i, pin in enumerate(chicago_pin_universe["pin"], start=1):
+        ws_pins.write(i, 0, str(pin).zfill(14), pin_fmt_u)
+    ws_pins.protect("")
 
-    for data_row_idx, (_, row_data) in enumerate(
-        df_needs_review.iterrows(), start=2
-    ):
-        # Col A: original row number (1-based index in the flagged set)
-        ws_review.cell(
-            row=data_row_idx, column=1, value=data_row_idx - 1
-        ).font = normal_font
-
-        # Col B: TEXTJOIN errors formula
-        ws_review.cell(
-            row=data_row_idx,
-            column=2,
-            value=_build_textjoin_errors_formula(data_row_idx),
-        ).font = normal_font
-
-        # Remaining data columns
-        for src_col, dest_col in col_map.items():
-            val = row_data.get(src_col)
-            if pd.isna(val) if not isinstance(val, str) else False:
-                val = None
-            cell = ws_review.cell(row=data_row_idx, column=dest_col, value=val)
-            cell.alignment = wrap_top
-            cell.font = (
-                hyperlink_font
-                if isinstance(val, str) and val.startswith("=HYPERLINK(")
-                else normal_font
-            )
-
-        ws_review.row_dimensions[data_row_idx].height = 15
-
-    # Hide columns
-    for col_idx in REVIEW_HIDDEN_COLS:
-        ws_review.column_dimensions[get_column_letter(col_idx)].hidden = True
-
-    # Autofilter on data range
-    if len(df_needs_review) > 0:
-        ws_review.auto_filter.ref = f"A1:{get_column_letter(len(REVIEW_HEADERS))}{len(df_needs_review) + 1}"
-
-    # --- "Universe of Valid PINs" sheet ---
-    ws_pins = wb.create_sheet("Universe of Valid PINs")
-    ws_pins.cell(row=1, column=1, value="pin").font = bold_font
-
-    # --- Save as .xlsm, transplanting VBA + Power Query from the demo ---
-    # openpyxl cannot write .xlsm natively, so we:
-    #   1. Save the workbook to a temp .xlsx
-    #   2. Re-pack it as .xlsm, injecting binary/XML assets from the demo file
-    import zipfile as _zf
-
-    tmp_xlsx = file_name_review.replace(".xlsm", "_tmp.xlsx")
-    wb.save(tmp_xlsx)
-
-    # The demo .xlsm lives alongside this script in a "templates" folder.
-    # Adjust this path if your project layout differs.
-    _script_dir = os.path.dirname(os.path.abspath(__file__))
-    _demo_xlsm = os.path.join(
-        _script_dir, "templates", "permits_needing_review.xlsm"
-    )
-
-    # Files transplanted verbatim from the demo into the new workbook
-    _transplant = [
-        "xl/vbaProject.bin",
-        "xl/connections.xml",
-        "xl/queryTables/queryTable1.xml",
-        "xl/tables/_rels/table1.xml.rels",
-        "customXml/item1.xml",
-        "customXml/itemProps1.xml",
-        "customXml/_rels/item1.xml.rels",
-    ]
-
-    with (
-        _zf.ZipFile(tmp_xlsx, "r") as zin,
-        _zf.ZipFile(file_name_review, "w", _zf.ZIP_DEFLATED) as zout,
-        _zf.ZipFile(_demo_xlsm, "r") as zdemo,
-    ):
-        demo_names = set(zdemo.namelist())
-
-        # Patch [Content_Types].xml to register vbaProject.bin and set xlsm type
-        ct_xml = zin.read("[Content_Types].xml").decode("utf-8")
-        if "vbaProject.bin" not in ct_xml:
-            ct_xml = ct_xml.replace(
-                "</Types>",
-                '<Override PartName="/xl/vbaProject.bin" '
-                'ContentType="application/vnd.ms-office.activeX+xml"/>'
-                '<Default Extension="bin" '
-                'ContentType="application/vnd.ms-office.activeX"/>'
-                "</Types>",
-            )
-        ct_xml = ct_xml.replace(
-            'ContentType="application/vnd.openxmlformats-officedocument'
-            '.spreadsheetml.sheet.main+xml"',
-            'ContentType="application/vnd.ms-excel.sheet.macroEnabled.main+xml"',
-        )
-        zout.writestr("[Content_Types].xml", ct_xml)
-
-        # Patch xl/_rels/workbook.xml.rels to declare the VBA project relationship
-        rels_xml = zin.read("xl/_rels/workbook.xml.rels").decode("utf-8")
-        if "vbaProject.bin" not in rels_xml:
-            rels_xml = rels_xml.replace(
-                "</Relationships>",
-                '<Relationship Id="rIdVBA" '
-                'Type="http://schemas.microsoft.com/office/2006/'
-                'relationships/vbaProject" '
-                'Target="vbaProject.bin"/>'
-                "</Relationships>",
-            )
-        zout.writestr("xl/_rels/workbook.xml.rels", rels_xml)
-
-        # Copy everything else from the new xlsx unchanged
-        _skip = {"[Content_Types].xml", "xl/_rels/workbook.xml.rels"} | set(
-            _transplant
-        )
-        for item in zin.namelist():
-            if item not in _skip:
-                zout.writestr(item, zin.read(item))
-
-        # Inject the transplanted assets from the demo
-        for name in _transplant:
-            if name in demo_names:
-                zout.writestr(name, zdemo.read(name))
-
-    os.remove(tmp_xlsx)
-    print(f"Saved review workbook (.xlsm) to {file_name_review}")
+    workbook.close()
+    print(f"Saved review workbook to {file_name_review}")
 
 
 if __name__ == "__main__":
@@ -995,4 +1267,4 @@ if __name__ == "__main__":
 
     file_base_name = gen_file_base_name(start_date, end_date)
 
-    save_xlsx_files(permits_deduped, 200, file_base_name)
+    save_xlsx_files(permits_deduped, 200, file_base_name, chicago_pin_universe)
