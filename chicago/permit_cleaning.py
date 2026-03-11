@@ -639,7 +639,7 @@ def _build_textjoin_errors_formula(row: int) -> str:
     return (
         f'=_xlfn.TEXTJOIN(", ", TRUE, '
         f'IF(LEN(TRIM(D{r}))=0, "Missing PIN14", ""), '
-        f'IF(COUNTIF(\'Universe of Valid PINs\'!A:A, D{r}) > 0, "", "Provide Valid Pin"), '
+        f'IF(COUNTIF(\'Universe of Valid PINs\'!A:A, D{r}) > 0, "", "Invalid PIN"), '
         f'IF(LEN(TRIM(D{r}))<>14, "PIN is not 14 digits", ""), '
         f'IF(LEN(R{r})>50, "Applicant Name > 50 characters", ""), '
         f'IF(LEN(F{r})>40, "Address > 40 characters", ""), '
