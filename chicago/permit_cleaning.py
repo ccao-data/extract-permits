@@ -496,14 +496,14 @@ def _build_textjoin_errors_formula(row: int) -> str:
         f'IF(LEN(TRIM(D{row}))<>14, "PIN is not 14 digits", ""), '
         f'IF(LEN(R{row})>50, "Applicant Name > 50 characters", ""), '
         f'IF(LEN(F{row})>40, "Address > 40 characters", ""), '
-        f'IF(LEN(T{row})>2000, "Work Description > 2000 characters", ""), '
+        f'IF(LEN(W{row})>2000, "Work Description > 2000 characters", ""), '
         f'IF(AND(ISNUMBER(M{row}), M{row}>2147483647), "Amount exceeds limit", ""), '
         f'IF(OR(NOT(ISNUMBER(H{row})), H{row}=""), "Missing or Invalid Issue Date", ""), '
         f'IF(OR(M{row}="", NOT(ISNUMBER(M{row}))), "Missing Amount", ""), '
         f'IF(LEN(TRIM(R{row}))=0, "Missing Applicant", ""), '
         f'IF(LEN(TRIM(F{row}))=0, "Missing Applicant Street Address", ""), '
         f'IF(LEN(TRIM(G{row}))=0, "Missing Permit Number", ""), '
-        f'IF(LEN(TRIM(T{row}))=0, "Missing Work Description", "")'
+        f'IF(LEN(TRIM(W{row}))=0, "Missing Work Description", "")'
         f")"
     )
 
