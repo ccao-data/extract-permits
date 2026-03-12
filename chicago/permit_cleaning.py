@@ -207,10 +207,8 @@ def format_pin(df):
     df["pin_final"] = df["pin_final"].apply(pad_pin)
     return df
 
-
+# Eliminate columns not included in permit upload and rename and order to match Smartfile excel format
 def organize_columns(df):
-    """Rename and order columns to match the SmartFile Excel template,
-    dropping anything not needed for upload."""
     address_columns = ["street_number", "street_direction", "street_name"]
     df[address_columns] = df[address_columns].fillna("")
     df["Address"] = df[address_columns].astype("string").agg(" ".join, axis=1)
@@ -301,8 +299,10 @@ def round_amount(df):
 
 
 # List of keywords to identify likely assessable permits.
-# This is produced via a document provided by Valuations and Data Integrity.
-# "Build" was in the provided document but is a component of too many words (e.g. "building")
+# This is produced via a document provided by Valuations
+# and Data Integrity.
+# "Build" was in the provided document
+# but is a component of too many words (e.g. "building")
 keywords = [
     "Addition",
     "Elevator",
@@ -344,9 +344,8 @@ keywords = [
     "Season",
 ]
 
-
+# Join addresses and format columns
 def add_address_link_and_suggested_pins(df, chicago_pin_universe):
-    """Join addresses and format columns"""
     # Collapse multiple pins per address into a single comma-separated string
     pin_map = (
         chicago_pin_universe.groupby(["prop_address_full"])["pin"]
@@ -396,11 +395,13 @@ def add_address_link_and_suggested_pins(df, chicago_pin_universe):
         digits = re.sub(r"\D", "", pin_str)
         if len(digits) == 14:
             return f'=HYPERLINK("https://www.cookcountyassessoril.gov/pin/{digits}", "{pin_str}")'
-        return pin_str  # comma-separated list of PINs
+        # This will be a list of comma separated pins
+        return pin_str
 
     df["Suggested PINs"] = df["Suggested PINs"].apply(make_pin_hyperlink)
 
-    # Create a comma separated list of matched keywords derived from the keywords list
+    # Create a comma separated list of matched keywords. This is derived from
+    # the list called keywords.
     df = df.assign(
         **{
             "Matched Keywords": df["Notes [NOTE1]"].apply(
@@ -462,7 +463,8 @@ def deduplicate_permits(cursor, df, start_date, end_date):
         .str.slice(0, 259)
     )
 
-    # Antijoin new_permits to existing_permits to find permits that do not exist in iasworld
+    # Antijoin new_permits to existing_permits to find permits that do
+    # not exist in iasworld
     merged_permits = pd.merge(
         new_permits,
         existing_permits,
