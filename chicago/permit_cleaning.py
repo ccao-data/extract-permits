@@ -207,6 +207,7 @@ def format_pin(df):
     df["pin_final"] = df["pin_final"].apply(pad_pin)
     return df
 
+
 # Eliminate columns not included in permit upload and rename and order to match Smartfile excel format
 def organize_columns(df):
     address_columns = ["street_number", "street_direction", "street_name"]
@@ -343,6 +344,7 @@ keywords = [
     "Sun Room",
     "Season",
 ]
+
 
 # Join addresses and format columns
 def add_address_link_and_suggested_pins(df, chicago_pin_universe):
