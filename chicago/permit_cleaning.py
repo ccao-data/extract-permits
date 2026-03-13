@@ -513,10 +513,21 @@ def _build_textjoin_errors_formula(row: int) -> str:
 
 # ---------------------------------------------------------------------------
 # PERMITS_COLUMNS
-
+#
 # Key for every column on the "Permits" sheet.
 # Keys are sequential column indices (0-based).
 #
+# Format names in use:
+#   normal                 — locked, no wrap
+#   unlocked_normal        — unlocked, no wrap
+#   unlocked_wrap          — unlocked, text_wrap=True (confines text within cell)
+#   pin_fmt                — locked, num_format="@" (text, preserves leading zeros)
+#   pin_unlocked_fmt       — unlocked, num_format="@"
+#   date_fmt               — locked, mm/dd/yyyy
+#   date_unlocked_fmt      — unlocked, mm/dd/yyyy
+#   hyperlink_fmt          — locked, blue underline
+#   hyperlink_unlocked_fmt — unlocked, blue underline
+#   checkbox               — unlocked, center-aligned
 # ---------------------------------------------------------------------------
 PERMITS_COLUMNS = {
     # col 0 — Row Number (computed)
@@ -524,9 +535,7 @@ PERMITS_COLUMNS = {
         "header": "Row Number",
         "src": None,
         "width": 12,
-        "fmt_locked": "normal",
-        "fmt_unlocked": "normal",
-        "col_default": "normal",
+        "fmt": "locked_normal",
         "hidden": False,
         "cell_type": "row_number",
         "error_check": None,
@@ -537,9 +546,7 @@ PERMITS_COLUMNS = {
         "header": "Errors",
         "src": None,
         "width": 67,
-        "fmt_locked": "normal",
-        "fmt_unlocked": "normal",
-        "col_default": "normal",
+        "fmt": "locked_normal",
         "hidden": False,
         "cell_type": "formula",
         "error_check": None,
@@ -550,9 +557,7 @@ PERMITS_COLUMNS = {
         "header": "Suggested PINs",
         "src": "Suggested PINs",
         "width": 50,
-        "fmt_locked": "unlocked_wrap_col",
-        "fmt_unlocked": "unlocked_wrap_col",
-        "col_default": "unlocked_wrap_col",
+        "fmt": "unlocked_wrap",
         "hidden": False,
         "cell_type": "suggested_pins",
         "error_check": None,
@@ -571,8 +576,7 @@ PERMITS_COLUMNS = {
         "src": "PIN* [PARID]",
         "width": 25,
         "fmt_locked": "pin_fmt",
-        "fmt_unlocked": "pin_unlocked_fmt",
-        "col_default": "pin_unlocked_fmt",
+        "fmt": "pin_unlocked_fmt",
         "hidden": False,
         "cell_type": "pin",
         "error_check": lambda row, valid_pins: (
@@ -595,9 +599,7 @@ PERMITS_COLUMNS = {
         "header": "Suggested Property Address",
         "src": "Property Address",
         "width": 25,
-        "fmt_locked": "hyperlink_fmt",
-        "fmt_unlocked": "hyperlink_fmt",
-        "col_default": "normal",
+        "fmt": "hyperlink_fmt",
         "hidden": False,
         "cell_type": "hyperlink_locked",
         "error_check": None,
@@ -608,9 +610,8 @@ PERMITS_COLUMNS = {
         "header": "Applicant Street Address",
         "src": "Applicant Street Address* [ADDR1]",
         "width": 25,
-        "fmt_locked": "wrap",
-        "fmt_unlocked": "unlocked_wrap",
-        "col_default": "unlocked_normal",
+        "fmt_locked": "locked_normal",
+        "fmt": "unlocked_normal",
         "hidden": False,
         "cell_type": "normal",
         "error_check": lambda row, _: (
@@ -643,9 +644,8 @@ PERMITS_COLUMNS = {
         "header": "Local Permit No.",
         "src": "Local Permit No.* [USER28]",
         "width": 25,
-        "fmt_locked": "wrap",
-        "fmt_unlocked": "unlocked_wrap",
-        "col_default": "unlocked_normal",
+        "fmt_locked": "locked_normal",
+        "fmt": "unlocked_normal",
         "hidden": False,
         "cell_type": "normal",
         "error_check": lambda row, _: (
@@ -668,8 +668,7 @@ PERMITS_COLUMNS = {
         "src": "Issue Date* [PERMDT]",
         "width": 25,
         "fmt_locked": "date_fmt",
-        "fmt_unlocked": "date_unlocked_fmt",
-        "col_default": "unlocked_normal",
+        "fmt": "date_unlocked_fmt",
         "hidden": False,
         "cell_type": "date",
         "error_check": lambda row, _: (
@@ -690,9 +689,7 @@ PERMITS_COLUMNS = {
         "header": "Desc 1* [DESC1]",
         "src": "Desc 1* [DESC1]",
         "width": 25,
-        "fmt_locked": "wrap",
-        "fmt_unlocked": "wrap",
-        "col_default": "normal",
+        "fmt": "locked_normal",
         "hidden": True,
         "cell_type": "normal",
         "error_check": None,
@@ -703,9 +700,7 @@ PERMITS_COLUMNS = {
         "header": "Desc 2 Code 1 [USER6]",
         "src": "Desc 2 Code 1 [USER6]",
         "width": 25,
-        "fmt_locked": "wrap",
-        "fmt_unlocked": "wrap",
-        "col_default": "normal",
+        "fmt": "locked_normal",
         "hidden": True,
         "cell_type": "normal",
         "error_check": None,
@@ -716,9 +711,7 @@ PERMITS_COLUMNS = {
         "header": "Desc 2 Code 2 [USER7]",
         "src": "Desc 2 Code 2 [USER7]",
         "width": 25,
-        "fmt_locked": "wrap",
-        "fmt_unlocked": "wrap",
-        "col_default": "normal",
+        "fmt": "locked_normal",
         "hidden": True,
         "cell_type": "normal",
         "error_check": None,
@@ -729,22 +722,19 @@ PERMITS_COLUMNS = {
         "header": "Desc 2 Code 3 [USER8]",
         "src": "Desc 2 Code 3 [USER8]",
         "width": 25,
-        "fmt_locked": "wrap",
-        "fmt_unlocked": "wrap",
-        "col_default": "normal",
+        "fmt": "locked_normal",
         "hidden": True,
         "cell_type": "normal",
         "error_check": None,
         "validation": None,
     },
-    # col 12 — Amount (hidden; unlocked when missing or over limit)
+    # col 12 — Amount (unlocked when missing or over limit)
     12: {
         "header": "Amount",
         "src": "Amount* [AMOUNT]",
         "width": 25,
-        "fmt_locked": "wrap",
-        "fmt_unlocked": "unlocked_wrap",
-        "col_default": "unlocked_normal",
+        "fmt_locked": "locked_normal",
+        "fmt": "unlocked_normal",
         "hidden": False,
         "cell_type": "normal",
         "error_check": lambda row, _: (
@@ -766,9 +756,7 @@ PERMITS_COLUMNS = {
         "header": "Assessable [IS_ASSESS]",
         "src": "Assessable [IS_ASSESS]",
         "width": 25,
-        "fmt_locked": "wrap",
-        "fmt_unlocked": "wrap",
-        "col_default": "normal",
+        "fmt": "locked_normal",
         "hidden": True,
         "cell_type": "normal",
         "error_check": None,
@@ -779,9 +767,7 @@ PERMITS_COLUMNS = {
         "header": "Applicant Address 2 [ADDR2]",
         "src": "Applicant Address 2 [ADDR2]",
         "width": 25,
-        "fmt_locked": "wrap",
-        "fmt_unlocked": "wrap",
-        "col_default": "normal",
+        "fmt": "locked_normal",
         "hidden": True,
         "cell_type": "normal",
         "error_check": None,
@@ -792,9 +778,7 @@ PERMITS_COLUMNS = {
         "header": "Applicant City, State, Zip* [ADDR3]",
         "src": "Applicant City, State, Zip* [ADDR3]",
         "width": 25,
-        "fmt_locked": "wrap",
-        "fmt_unlocked": "wrap",
-        "col_default": "normal",
+        "fmt": "locked_normal",
         "hidden": False,
         "cell_type": "normal",
         "error_check": None,
@@ -805,9 +789,7 @@ PERMITS_COLUMNS = {
         "header": "Contact Phone* [PHONE]",
         "src": "Contact Phone* [PHONE]",
         "width": 25,
-        "fmt_locked": "wrap",
-        "fmt_unlocked": "wrap",
-        "col_default": "normal",
+        "fmt": "locked_normal",
         "hidden": True,
         "cell_type": "normal",
         "error_check": None,
@@ -818,9 +800,8 @@ PERMITS_COLUMNS = {
         "header": "Applicant",
         "src": "Applicant* [USER21]",
         "width": 25,
-        "fmt_locked": "wrap",
-        "fmt_unlocked": "unlocked_wrap",
-        "col_default": "unlocked_normal",
+        "fmt_locked": "locked_normal",
+        "fmt": "unlocked_normal",
         "hidden": False,
         "cell_type": "normal",
         "error_check": lambda row, _: (
@@ -843,9 +824,7 @@ PERMITS_COLUMNS = {
         "header": "Matched Keywords",
         "src": "Matched Keywords",
         "width": 25,
-        "fmt_locked": "wrap",
-        "fmt_unlocked": "wrap",
-        "col_default": "normal",
+        "fmt": "locked_normal",
         "hidden": False,
         "cell_type": "normal",
         "error_check": None,
@@ -856,9 +835,7 @@ PERMITS_COLUMNS = {
         "header": "Occupy Dt [UDATE1]",
         "src": "Occupy Dt [UDATE1]",
         "width": 25,
-        "fmt_locked": "wrap",
-        "fmt_unlocked": "wrap",
-        "col_default": "normal",
+        "fmt": "locked_normal",
         "hidden": True,
         "cell_type": "normal",
         "error_check": None,
@@ -869,9 +846,7 @@ PERMITS_COLUMNS = {
         "header": "Submit Dt* [CERTDATE]",
         "src": "Submit Dt* [CERTDATE]",
         "width": 25,
-        "fmt_locked": "wrap",
-        "fmt_unlocked": "wrap",
-        "col_default": "normal",
+        "fmt": "locked_normal",
         "hidden": True,
         "cell_type": "normal",
         "error_check": None,
@@ -882,9 +857,7 @@ PERMITS_COLUMNS = {
         "header": "Est Comp Dt [UDATE2]",
         "src": "Est Comp Dt [UDATE2]",
         "width": 25,
-        "fmt_locked": "wrap",
-        "fmt_unlocked": "wrap",
-        "col_default": "normal",
+        "fmt": "locked_normal",
         "hidden": True,
         "cell_type": "normal",
         "error_check": None,
@@ -895,9 +868,8 @@ PERMITS_COLUMNS = {
         "header": "Work Description",
         "src": "Notes [NOTE1]",
         "width": 50,
-        "fmt_locked": "wrap",
-        "fmt_unlocked": "unlocked_wrap",
-        "col_default": "unlocked_normal",
+        "fmt_locked": "locked_normal",
+        "fmt": "unlocked_normal",
         "hidden": False,
         "cell_type": "normal",
         "error_check": lambda row, _: (
@@ -920,9 +892,7 @@ PERMITS_COLUMNS = {
         "header": "Errors are Resolved",
         "src": None,
         "width": 25,
-        "fmt_locked": "checkbox_unlocked",
-        "fmt_unlocked": "checkbox_unlocked",
-        "col_default": "unlocked_normal",
+        "fmt": "checkbox",
         "hidden": False,
         "cell_type": "checkbox",
         "error_check": None,
@@ -940,9 +910,7 @@ PERMITS_COLUMNS = {
         "header": "Reviewer Name",
         "src": None,
         "width": 25,
-        "fmt_locked": "unlocked_normal",
-        "fmt_unlocked": "unlocked_normal",
-        "col_default": "unlocked_normal",
+        "fmt": "unlocked_normal",
         "hidden": False,
         "cell_type": "normal",
         "error_check": None,
@@ -953,9 +921,7 @@ PERMITS_COLUMNS = {
         "header": "Reviewer Notes",
         "src": None,
         "width": 25,
-        "fmt_locked": "unlocked_normal",
-        "fmt_unlocked": "unlocked_normal",
-        "col_default": "unlocked_normal",
+        "fmt": "unlocked_normal",
         "hidden": False,
         "cell_type": "normal",
         "error_check": None,
@@ -988,8 +954,8 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
 
     # --- Format registry ---
     # Every xlsxwriter format object is defined here in full, keyed by the
-    # same name strings used in PERMITS_COLUMNS (fmt_locked / fmt_unlocked /
-    # col_default). Each entry is completely self-contained.
+    # same name strings used in PERMITS_COLUMNS (fmt_locked / fmt /
+    # fmt). Each entry is completely self-contained.
     formats = {
         key: workbook.add_format(value)
         for key, value in {
@@ -1001,21 +967,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                 "num_format": "0.##",
                 "bold": True,
             },
-            "normal": {
-                "font_name": "Arial",
-                "locked": True,
-                "align": "left",
-                "text_wrap": False,
-                "num_format": "0.##",
-            },
-            "wrap": {
-                "font_name": "Arial",
-                "locked": True,
-                "align": "left",
-                "text_wrap": False,
-                "num_format": "0.##",
-            },
-            "hidden_col": {
+            "locked_normal": {
                 "font_name": "Arial",
                 "locked": True,
                 "align": "left",
@@ -1042,22 +994,14 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                 "font_name": "Arial",
                 "locked": False,
                 "align": "left",
-                "text_wrap": False,
-                "num_format": "0.##",
-            },
-            "unlocked_wrap_col": {
-                "font_name": "Arial",
-                "locked": False,
-                "align": "left",
                 "text_wrap": True,
                 "num_format": "0.##",
             },
-            "checkbox_unlocked": {
+            "checkbox": {
                 "font_name": "Arial",
                 "locked": False,
                 "align": "center",
                 "text_wrap": False,
-                "num_format": "0.##",
             },
             "pin_fmt": {
                 "font_name": "Arial",
@@ -1104,13 +1048,13 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
 
     # --- Apply column widths, default formats, and hide flags from the dict ---
     for ci, col_def in PERMITS_COLUMNS.items():
-        col_fmt = formats[col_def["col_default"]]
+        col_fmt = formats[col_def["fmt"]]
         if col_def["hidden"]:
             ws.set_column(
                 ci,
                 ci,
                 col_def["width"],
-                formats["hidden_col"],
+                formats["locked_normal"],
                 {"hidden": True},
             )
         else:
@@ -1135,13 +1079,16 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                 else False
             )
 
-            locked_fmt = formats[col_def["fmt_locked"]]
-            unlocked_fmt = formats[col_def["fmt_unlocked"]]
-            cell_fmt = unlocked_fmt if in_error else locked_fmt
+            fmt = formats[col_def["fmt"]]
+            cell_fmt = (
+                formats[col_def["fmt_locked"]]
+                if (error_check and not in_error)
+                else fmt
+            )
 
             # --- Computed / special cell types ---
             if cell_type == "row_number":
-                ws.write(xl_row, ci, row_idx, locked_fmt)
+                ws.write(xl_row, ci, row_idx, cell_fmt)
                 continue
 
             if cell_type == "formula":
@@ -1149,14 +1096,12 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                     xl_row,
                     ci,
                     _build_textjoin_errors_formula(xl_row + 1),
-                    locked_fmt,
+                    cell_fmt,
                 )
                 continue
 
             if cell_type == "checkbox":
-                ws.insert_checkbox(
-                    xl_row, ci, False, formats["checkbox_unlocked"]
-                )
+                ws.insert_checkbox(xl_row, ci, False, formats["checkbox"])
                 continue
 
             # --- Source-value cells ---
@@ -1184,7 +1129,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
 
             # Suggested PINs non-hyperlink (plain text / "NO PIN FOUND")
             if cell_type == "suggested_pins":
-                ws.write(xl_row, ci, val, formats["unlocked_wrap_col"])
+                ws.write(xl_row, ci, val, formats["unlocked_wrap"])
                 continue
 
             # PIN: zero-pad to 14 digits, use text format
