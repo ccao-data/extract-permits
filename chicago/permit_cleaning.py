@@ -190,6 +190,7 @@ def expand_multi_pin_permits(df):
 
     return df
 
+
 # update pin to match formatting of iasWorld
 def format_pin(df):
     # iasWorld format doesn't include dashes
