@@ -991,8 +991,8 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
     # same name strings used in PERMITS_COLUMNS (fmt_locked / fmt_unlocked /
     # col_default). Each entry is completely self-contained.
     formats = {
-        k: workbook.add_format(v)
-        for k, v in {
+        key: workbook.add_format(value)
+        for key, value in {
             "bold": {
                 "font_name": "Arial",
                 "locked": True,
