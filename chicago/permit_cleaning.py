@@ -986,9 +986,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
     # --- Format registry ---
     # Every xlsxwriter format object is defined here in full, keyed by the
     # same name strings used in PERMITS_COLUMNS (fmt_locked / fmt_unlocked /
-    # col_default). Each entry is completely self-contained — no shared base
-    # dicts or helper variables — so this block is the single source of truth
-    # for all cell formatting properties.
+    # col_default). Each entry is completely self-contained.
     formats = {
         k: workbook.add_format(v)
         for k, v in {
@@ -1234,14 +1232,14 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                 },
             )
 
-    # --- Data validation (driven by PERMITS_COLUMNS) ---
+    # --- Data validation
     if n_data_rows > 0:
         for ci, col_def in PERMITS_COLUMNS.items():
             if col_def["validation"] is None:
                 continue
             v = col_def["validation"].copy()
             # pop show_error / error_type so they can be passed as top-level
-            # kwargs to ws.data_validation rather than nested in the options dict
+            # kwargs to ws.data_validation
             show_error = v.pop("show_error", True)
             error_type = v.pop("error_type", "stop")
             ws.data_validation(
