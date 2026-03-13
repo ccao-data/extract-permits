@@ -303,8 +303,9 @@ def round_amount(df):
 # List of keywords to identify likely assessable permits.
 # This is produced via a document provided by Valuations
 # and Data Integrity.
-# "Build" was in the provided document
-# but is a component of too many words (e.g. "building")
+# Build was in the provided document
+# but is a component of too many words (building)
+
 keywords = [
     "Addition",
     "Elevator",
