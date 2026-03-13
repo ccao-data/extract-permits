@@ -510,13 +510,13 @@ def _build_textjoin_errors_formula(row: int) -> str:
 
 # ---------------------------------------------------------------------------
 # PERMITS_COLUMNS
-# ---------------------------------------------------------------------------
+
 # Key for every column on the "Permits" sheet.
 # Keys are sequential column indices (0-based).
 #
 # ---------------------------------------------------------------------------
 PERMITS_COLUMNS = {
-    # col 0 — Row Number (computed, no src)
+    # col 0 — Row Number (computed)
     0: {
         "header": "Row Number",
         "src": None,
@@ -529,7 +529,7 @@ PERMITS_COLUMNS = {
         "error_check": None,
         "validation": None,
     },
-    # col 1 — Errors (TEXTJOIN formula, no src)
+    # col 1 — Errors (TEXTJOIN formula)
     1: {
         "header": "Errors",
         "src": None,
