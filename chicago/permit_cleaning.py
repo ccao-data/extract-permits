@@ -745,7 +745,7 @@ PERMITS_COLUMNS = {
         "fmt_locked": "wrap",
         "fmt_unlocked": "unlocked_wrap",
         "col_default": "unlocked_normal",
-        "hidden": True,
+        "hidden": False,
         "cell_type": "normal",
         "error_check": lambda row, _: (
             (lambda v: v is None or pd.isna(v) or float(v) > 2147483647)(
@@ -787,7 +787,7 @@ PERMITS_COLUMNS = {
         "error_check": None,
         "validation": None,
     },
-    # col 15 — Applicant City, State, Zip (hidden)
+    # col 15 — Applicant City, State, Zip
     15: {
         "header": "Applicant City, State, Zip* [ADDR3]",
         "src": "Applicant City, State, Zip* [ADDR3]",
@@ -795,7 +795,7 @@ PERMITS_COLUMNS = {
         "fmt_locked": "wrap",
         "fmt_unlocked": "wrap",
         "col_default": "normal",
-        "hidden": True,
+        "hidden": False,
         "cell_type": "normal",
         "error_check": None,
         "validation": None,
@@ -813,7 +813,7 @@ PERMITS_COLUMNS = {
         "error_check": None,
         "validation": None,
     },
-    # col 17 — Applicant (hidden; unlocked when empty or > 50 chars)
+    # col 17 — Applicant (unlocked when empty or > 50 chars)
     17: {
         "header": "Applicant",
         "src": "Applicant* [USER21]",
@@ -821,7 +821,7 @@ PERMITS_COLUMNS = {
         "fmt_locked": "wrap",
         "fmt_unlocked": "unlocked_wrap",
         "col_default": "unlocked_normal",
-        "hidden": True,
+        "hidden": False,
         "cell_type": "normal",
         "error_check": lambda row, _: (
             len(str(row.get("Applicant* [USER21]", "") or "").strip()) == 0
