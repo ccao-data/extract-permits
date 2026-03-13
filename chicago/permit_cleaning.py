@@ -67,7 +67,7 @@ def parse_args() -> tuple[str, str, bool]:
         sys.exit(1)
 
     deduplicate = deduplicate.lower() == "true"
-    
+
     return start_date_str, end_date_str, deduplicate
 
 
@@ -112,7 +112,7 @@ def pull_existing_pins_from_athena(cursor: Cursor, year: str) -> pd.DataFrame:
     chicago_pin_universe = as_pandas(cursor)
     pin_cache_filename = get_pin_cache_filename(year)
     chicago_pin_universe.to_csv(pin_cache_filename, index=False)
-    
+
     return chicago_pin_universe
 
 
@@ -190,9 +190,8 @@ def expand_multi_pin_permits(df):
 
     return df
 
-
+# update pin to match formatting of iasWorld
 def format_pin(df):
-    """Update pin to match formatting of iasWorld"""
     # iasWorld format doesn't include dashes
     df["pin_final"] = df["solo_pin"].astype("string").str.replace("-", "")
 
