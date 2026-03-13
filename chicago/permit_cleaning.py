@@ -685,7 +685,7 @@ PERMITS_COLUMNS = {
             "error_message": "Issue Date must be a valid date.",
         },
     },
-    # col 8 — Desc 1 (locked, no validation)
+    # col 8 — Desc 1 (locked, hidden)
     8: {
         "header": "Desc 1* [DESC1]",
         "src": "Desc 1* [DESC1]",
@@ -693,7 +693,7 @@ PERMITS_COLUMNS = {
         "fmt_locked": "wrap",
         "fmt_unlocked": "wrap",
         "col_default": "normal",
-        "hidden": False,
+        "hidden": True,
         "cell_type": "normal",
         "error_check": None,
         "validation": None,
@@ -761,7 +761,7 @@ PERMITS_COLUMNS = {
             "error_message": "Amount must be a whole number between 0 and 2,147,483,647.",
         },
     },
-    # col 13 — Assessable (locked, no validation)
+    # col 13 — Assessable (locked, hidden)
     13: {
         "header": "Assessable [IS_ASSESS]",
         "src": "Assessable [IS_ASSESS]",
@@ -769,7 +769,7 @@ PERMITS_COLUMNS = {
         "fmt_locked": "wrap",
         "fmt_unlocked": "wrap",
         "col_default": "normal",
-        "hidden": False,
+        "hidden": True,
         "cell_type": "normal",
         "error_check": None,
         "validation": None,
@@ -800,7 +800,7 @@ PERMITS_COLUMNS = {
         "error_check": None,
         "validation": None,
     },
-    # col 16 — Contact Phone (locked, no validation)
+    # col 16 — Contact Phone (locked, hidden)
     16: {
         "header": "Contact Phone* [PHONE]",
         "src": "Contact Phone* [PHONE]",
@@ -808,7 +808,7 @@ PERMITS_COLUMNS = {
         "fmt_locked": "wrap",
         "fmt_unlocked": "wrap",
         "col_default": "normal",
-        "hidden": False,
+        "hidden": True,
         "cell_type": "normal",
         "error_check": None,
         "validation": None,
