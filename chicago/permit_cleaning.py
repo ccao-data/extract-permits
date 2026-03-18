@@ -490,8 +490,8 @@ def gen_file_base_name(start_date, end_date):
 
 
 def _build_textjoin_errors_formula(row: int) -> str:
-    """Return the TEXTJOIN formula for the Errors column at a given row,
-    matching the demo workbook logic."""
+    """Return the TEXTJOIN formula for the Errors column at a given row
+    to catch common problems that require manual resolution."""
     return (
         f'=_xlfn.TEXTJOIN(", ", TRUE, '
         f'IF(LEN(TRIM(D{row}))=0, "Missing PIN14", ""), '
