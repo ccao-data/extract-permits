@@ -489,24 +489,47 @@ def gen_file_base_name(start_date, end_date):
     return f"{start_date}_to_{end_date}_permits_"
 
 
+def _col_letter(col_name: str) -> str:
+    """Return the Excel column letter for a named column in PERMITS_COLUMNS."""
+    col_idx = PERMITS_COLUMNS[col_name]["col_idx"]
+    # Convert 0-based index to Excel letter(s) (A, B, ..., Z, AA, ...)
+    letters = ""
+    n = col_idx + 1  # Excel columns are 1-based
+    while n > 0:
+        n, remainder = divmod(n - 1, 26)
+        letters = chr(65 + remainder) + letters
+    return letters
+
+
 def _build_textjoin_errors_formula(row: int) -> str:
-    """Return the TEXTJOIN formula for the Errors column at a given row,
-    matching the demo workbook logic."""
+    """Return the TEXTJOIN formula for the Errors column at a given row
+    to catch common problems that require manual resolution.
+    Column letters are derived dynamically from PERMITS_COLUMNS so that
+    this function stays correct if columns are reordered or added.
+    """
+    pin = _col_letter("pin")
+    addr = _col_letter("applicant_street_address")
+    permit_no = _col_letter("local_permit_no")
+    issue_date = _col_letter("issue_date")
+    amount = _col_letter("amount")
+    applicant = _col_letter("applicant")
+    work_desc = _col_letter("work_description")
+
     return (
         f'=_xlfn.TEXTJOIN(", ", TRUE, '
-        f'IF(LEN(TRIM(D{row}))=0, "Missing PIN14", ""), '
-        f'IF(COUNTIF(\'Universe of Valid PINs\'!A:A, D{row}) > 0, "", "Provide Valid Pin"), '
-        f'IF(LEN(TRIM(D{row}))<>14, "PIN is not 14 digits", ""), '
-        f'IF(LEN(R{row})>50, "Applicant Name > 50 characters", ""), '
-        f'IF(LEN(F{row})>40, "Address > 40 characters", ""), '
-        f'IF(LEN(W{row})>2000, "Work Description > 2000 characters", ""), '
-        f'IF(AND(ISNUMBER(M{row}), M{row}>2147483647), "Amount exceeds limit", ""), '
-        f'IF(OR(NOT(ISNUMBER(H{row})), H{row}=""), "Missing or Invalid Issue Date", ""), '
-        f'IF(OR(M{row}="", NOT(ISNUMBER(M{row}))), "Missing Amount", ""), '
-        f'IF(LEN(TRIM(R{row}))=0, "Missing Applicant", ""), '
-        f'IF(LEN(TRIM(F{row}))=0, "Missing Applicant Street Address", ""), '
-        f'IF(LEN(TRIM(G{row}))=0, "Missing Permit Number", ""), '
-        f'IF(LEN(TRIM(W{row}))=0, "Missing Work Description", "")'
+        f'IF(LEN(TRIM({pin}{row}))=0, "Missing PIN14", ""), '
+        f'IF(COUNTIF(\'Universe of Valid PINs\'!A:A, {pin}{row}) > 0, "", "Provide Valid Pin"), '
+        f'IF(LEN(TRIM({pin}{row}))<>14, "PIN is not 14 digits", ""), '
+        f'IF(LEN({applicant}{row})>50, "Applicant Name > 50 characters", ""), '
+        f'IF(LEN({addr}{row})>40, "Address > 40 characters", ""), '
+        f'IF(LEN({work_desc}{row})>2000, "Work Description > 2000 characters", ""), '
+        f'IF(AND(ISNUMBER({amount}{row}), {amount}{row}>2147483647), "Amount exceeds limit", ""), '
+        f'IF(OR(NOT(ISNUMBER({issue_date}{row})), {issue_date}{row}=""), "Missing or Invalid Issue Date", ""), '
+        f'IF(OR({amount}{row}="", NOT(ISNUMBER({amount}{row}))), "Missing Amount", ""), '
+        f'IF(LEN(TRIM({applicant}{row}))=0, "Missing Applicant", ""), '
+        f'IF(LEN(TRIM({addr}{row}))=0, "Missing Applicant Street Address", ""), '
+        f'IF(LEN(TRIM({permit_no}{row}))=0, "Missing Permit Number", ""), '
+        f'IF(LEN(TRIM({work_desc}{row}))=0, "Missing Work Description", "")'
         f")"
     )
 
@@ -515,12 +538,15 @@ def _build_textjoin_errors_formula(row: int) -> str:
 # PERMITS_COLUMNS
 #
 # Key for every column on the "Permits" sheet.
-# Keys are sequential column indices (0-based).
+# Keys are human-readable string identifiers. Each entry carries a "col_idx"
+# field (0-based) that drives the actual Excel column position.
+# Hidden columns (Desc 1, Desc 2 Codes 1-3, Assessable, Applicant Address 2,
+# Contact Phone, Occupy Dt, Submit Dt, Est Comp Dt) have been removed.
 #
 # Format names in use:
-#   normal                 — locked, no wrap
+#   locked_normal          — locked, no wrap
 #   unlocked_normal        — unlocked, no wrap
-#   unlocked_wrap          — unlocked, text_wrap=True (confines text within cell)
+#   unlocked_wrap          — unlocked, text_wrap=True
 #   pin_fmt                — locked, num_format="@" (text, preserves leading zeros)
 #   pin_unlocked_fmt       — unlocked, num_format="@"
 #   date_fmt               — locked, mm/dd/yyyy
@@ -530,35 +556,35 @@ def _build_textjoin_errors_formula(row: int) -> str:
 #   checkbox               — unlocked, center-aligned
 # ---------------------------------------------------------------------------
 PERMITS_COLUMNS = {
-    # col 0 — Row Number (computed)
-    0: {
+    # col 0  A — Row Number
+    "row_number": {
+        "col_idx": 0,
         "header": "Row Number",
         "src": None,
         "width": 12,
         "fmt": "locked_normal",
-        "hidden": False,
         "cell_type": "row_number",
         "error_check": None,
         "validation": None,
     },
-    # col 1 — Errors (TEXTJOIN formula)
-    1: {
+    # col 1  B — Errors (TEXTJOIN formula)
+    "errors": {
+        "col_idx": 1,
         "header": "Errors",
         "src": None,
         "width": 67,
         "fmt": "locked_normal",
-        "hidden": False,
         "cell_type": "formula",
         "error_check": None,
         "validation": None,
     },
-    # col 2 — Suggested PINs (always unlocked, wraps, warning-only validation)
-    2: {
+    # col 2  C — Suggested PINs
+    "suggested_pins": {
+        "col_idx": 2,
         "header": "Suggested PINs",
         "src": "Suggested PINs",
         "width": 50,
         "fmt": "unlocked_wrap",
-        "hidden": False,
         "cell_type": "suggested_pins",
         "error_check": None,
         "validation": {
@@ -570,14 +596,14 @@ PERMITS_COLUMNS = {
             "error_message": "Make sure that changes to PIN values are in PIN column.",
         },
     },
-    # col 3 — PIN (text / zero-padded; unlocked when invalid)
-    3: {
+    # col 3  D — PIN
+    "pin": {
+        "col_idx": 3,
         "header": "PIN",
         "src": "PIN* [PARID]",
         "width": 25,
         "fmt_locked": "pin_fmt",
         "fmt": "pin_unlocked_fmt",
-        "hidden": False,
         "cell_type": "pin",
         "error_check": lambda row, valid_pins: (
             len(str(row.get("PIN* [PARID]", "") or "").strip()) == 0
@@ -594,25 +620,25 @@ PERMITS_COLUMNS = {
             "error_message": "PIN must be 14 digits and exist in the Universe of Valid PINs.",
         },
     },
-    # col 4 — Suggested Property Address (hyperlink, locked)
-    4: {
+    # col 4  E — Suggested Property Address (hyperlink, locked)
+    "suggested_property_address": {
+        "col_idx": 4,
         "header": "Suggested Property Address",
         "src": "Property Address",
         "width": 25,
         "fmt": "hyperlink_fmt",
-        "hidden": False,
         "cell_type": "hyperlink_locked",
         "error_check": None,
         "validation": None,
     },
-    # col 5 — Applicant Street Address (unlocked when empty or > 40 chars)
-    5: {
+    # col 5  F — Applicant Street Address
+    "applicant_street_address": {
+        "col_idx": 5,
         "header": "Applicant Street Address",
         "src": "Applicant Street Address* [ADDR1]",
         "width": 25,
         "fmt_locked": "locked_normal",
         "fmt": "unlocked_normal",
-        "hidden": False,
         "cell_type": "normal",
         "error_check": lambda row, _: (
             len(
@@ -639,14 +665,14 @@ PERMITS_COLUMNS = {
             "error_message": "Address must be between 1 and 40 characters.",
         },
     },
-    # col 6 — Local Permit No. (unlocked when empty)
-    6: {
+    # col 6  G — Local Permit No.
+    "local_permit_no": {
+        "col_idx": 6,
         "header": "Local Permit No.",
         "src": "Local Permit No.* [USER28]",
         "width": 25,
         "fmt_locked": "locked_normal",
         "fmt": "unlocked_normal",
-        "hidden": False,
         "cell_type": "normal",
         "error_check": lambda row, _: (
             len(str(row.get("Local Permit No.* [USER28]", "") or "").strip())
@@ -662,14 +688,14 @@ PERMITS_COLUMNS = {
             "error_message": "Permit No. must not be empty.",
         },
     },
-    # col 7 — Issue Date (date serial; unlocked when empty)
-    7: {
+    # col 7  H — Issue Date
+    "issue_date": {
+        "col_idx": 7,
         "header": "Issue Date",
         "src": "Issue Date* [PERMDT]",
         "width": 25,
         "fmt_locked": "date_fmt",
         "fmt": "date_unlocked_fmt",
-        "hidden": False,
         "cell_type": "date",
         "error_check": lambda row, _: (
             len(str(row.get("Issue Date* [PERMDT]", "") or "").strip()) == 0
@@ -684,58 +710,14 @@ PERMITS_COLUMNS = {
             "error_message": "Issue Date must be a valid date.",
         },
     },
-    # col 8 — Desc 1 (locked, hidden)
-    8: {
-        "header": "Desc 1* [DESC1]",
-        "src": "Desc 1* [DESC1]",
-        "width": 25,
-        "fmt": "locked_normal",
-        "hidden": True,
-        "cell_type": "normal",
-        "error_check": None,
-        "validation": None,
-    },
-    # col 9 — Desc 2 Code 1 (hidden)
-    9: {
-        "header": "Desc 2 Code 1 [USER6]",
-        "src": "Desc 2 Code 1 [USER6]",
-        "width": 25,
-        "fmt": "locked_normal",
-        "hidden": True,
-        "cell_type": "normal",
-        "error_check": None,
-        "validation": None,
-    },
-    # col 10 — Desc 2 Code 2 (hidden)
-    10: {
-        "header": "Desc 2 Code 2 [USER7]",
-        "src": "Desc 2 Code 2 [USER7]",
-        "width": 25,
-        "fmt": "locked_normal",
-        "hidden": True,
-        "cell_type": "normal",
-        "error_check": None,
-        "validation": None,
-    },
-    # col 11 — Desc 2 Code 3 (hidden)
-    11: {
-        "header": "Desc 2 Code 3 [USER8]",
-        "src": "Desc 2 Code 3 [USER8]",
-        "width": 25,
-        "fmt": "locked_normal",
-        "hidden": True,
-        "cell_type": "normal",
-        "error_check": None,
-        "validation": None,
-    },
-    # col 12 — Amount (unlocked when missing or over limit)
-    12: {
+    # col 8  I — Amount
+    "amount": {
+        "col_idx": 8,
         "header": "Amount",
         "src": "Amount* [AMOUNT]",
         "width": 25,
         "fmt_locked": "locked_normal",
         "fmt": "unlocked_normal",
-        "hidden": False,
         "cell_type": "normal",
         "error_check": lambda row, _: (
             (lambda v: v is None or pd.isna(v) or float(v) > 2147483647)(
@@ -744,65 +726,32 @@ PERMITS_COLUMNS = {
         ),
         "validation": {
             "validate": "custom",
-            "value": "=AND(ISNUMBER(M2),M2>=0,M2<=2147483647)",
+            "value": "=AND(ISNUMBER(I2),I2>=0,I2<=2147483647)",
             "show_error": True,
             "error_type": "stop",
             "error_title": "Invalid Amount",
             "error_message": "Amount must be a whole number between 0 and 2,147,483,647.",
         },
     },
-    # col 13 — Assessable (locked, hidden)
-    13: {
-        "header": "Assessable [IS_ASSESS]",
-        "src": "Assessable [IS_ASSESS]",
-        "width": 25,
-        "fmt": "locked_normal",
-        "hidden": True,
-        "cell_type": "normal",
-        "error_check": None,
-        "validation": None,
-    },
-    # col 14 — Applicant Address 2 (hidden)
-    14: {
-        "header": "Applicant Address 2 [ADDR2]",
-        "src": "Applicant Address 2 [ADDR2]",
-        "width": 25,
-        "fmt": "locked_normal",
-        "hidden": True,
-        "cell_type": "normal",
-        "error_check": None,
-        "validation": None,
-    },
-    # col 15 — Applicant City, State, Zip
-    15: {
+    # col 9  J — Applicant City, State, Zip
+    "applicant_city_state_zip": {
+        "col_idx": 9,
         "header": "Applicant City, State, Zip* [ADDR3]",
         "src": "Applicant City, State, Zip* [ADDR3]",
         "width": 25,
         "fmt": "locked_normal",
-        "hidden": False,
         "cell_type": "normal",
         "error_check": None,
         "validation": None,
     },
-    # col 16 — Contact Phone (locked, hidden)
-    16: {
-        "header": "Contact Phone* [PHONE]",
-        "src": "Contact Phone* [PHONE]",
-        "width": 25,
-        "fmt": "locked_normal",
-        "hidden": True,
-        "cell_type": "normal",
-        "error_check": None,
-        "validation": None,
-    },
-    # col 17 — Applicant (unlocked when empty or > 50 chars)
-    17: {
+    # col 10  K — Applicant
+    "applicant": {
+        "col_idx": 10,
         "header": "Applicant",
         "src": "Applicant* [USER21]",
         "width": 25,
         "fmt_locked": "locked_normal",
         "fmt": "unlocked_normal",
-        "hidden": False,
         "cell_type": "normal",
         "error_check": lambda row, _: (
             len(str(row.get("Applicant* [USER21]", "") or "").strip()) == 0
@@ -819,58 +768,25 @@ PERMITS_COLUMNS = {
             "error_message": "Applicant must be between 1 and 50 characters.",
         },
     },
-    # col 18 — Matched Keywords (locked, no validation)
-    18: {
+    # col 11  L — Matched Keywords
+    "matched_keywords": {
+        "col_idx": 11,
         "header": "Matched Keywords",
         "src": "Matched Keywords",
         "width": 25,
         "fmt": "locked_normal",
-        "hidden": False,
         "cell_type": "normal",
         "error_check": None,
         "validation": None,
     },
-    # col 19 — Occupy Dt (hidden)
-    19: {
-        "header": "Occupy Dt [UDATE1]",
-        "src": "Occupy Dt [UDATE1]",
-        "width": 25,
-        "fmt": "locked_normal",
-        "hidden": True,
-        "cell_type": "normal",
-        "error_check": None,
-        "validation": None,
-    },
-    # col 20 — Submit Dt (hidden)
-    20: {
-        "header": "Submit Dt* [CERTDATE]",
-        "src": "Submit Dt* [CERTDATE]",
-        "width": 25,
-        "fmt": "locked_normal",
-        "hidden": True,
-        "cell_type": "normal",
-        "error_check": None,
-        "validation": None,
-    },
-    # col 21 — Est Comp Dt (hidden)
-    21: {
-        "header": "Est Comp Dt [UDATE2]",
-        "src": "Est Comp Dt [UDATE2]",
-        "width": 25,
-        "fmt": "locked_normal",
-        "hidden": True,
-        "cell_type": "normal",
-        "error_check": None,
-        "validation": None,
-    },
-    # col 22 — Work Description (unlocked when empty or > 2000 chars)
-    22: {
+    # col 12  M — Work Description
+    "work_description": {
+        "col_idx": 12,
         "header": "Work Description",
         "src": "Notes [NOTE1]",
         "width": 50,
         "fmt_locked": "locked_normal",
         "fmt": "unlocked_normal",
-        "hidden": False,
         "cell_type": "normal",
         "error_check": lambda row, _: (
             len(str(row.get("Notes [NOTE1]", "") or "").strip()) == 0
@@ -887,13 +803,13 @@ PERMITS_COLUMNS = {
             "error_message": "Work Description must be between 1 and 2000 characters.",
         },
     },
-    # col 23 — Errors are Resolved (checkbox; validation blocks check when errors remain)
-    23: {
+    # col 13  N — Errors are Resolved (checkbox)
+    "errors_resolved": {
+        "col_idx": 13,
         "header": "Errors are Resolved",
         "src": None,
         "width": 25,
         "fmt": "checkbox",
-        "hidden": False,
         "cell_type": "checkbox",
         "error_check": None,
         "validation": {
@@ -905,24 +821,24 @@ PERMITS_COLUMNS = {
             "error_message": "This row still has errors in column B. Fix them before marking resolved.",
         },
     },
-    # col 24 — Reviewer Name (blank, always unlocked)
-    24: {
+    # col 14  O — Reviewer Name
+    "reviewer_name": {
+        "col_idx": 14,
         "header": "Reviewer Name",
         "src": None,
         "width": 25,
         "fmt": "unlocked_normal",
-        "hidden": False,
         "cell_type": "normal",
         "error_check": None,
         "validation": None,
     },
-    # col 25 — Reviewer Notes (blank, always unlocked)
-    25: {
+    # col 15  P — Reviewer Notes
+    "reviewer_notes": {
+        "col_idx": 15,
         "header": "Reviewer Notes",
         "src": None,
         "width": 25,
         "fmt": "unlocked_normal",
-        "hidden": False,
         "cell_type": "normal",
         "error_check": None,
         "validation": None,
@@ -953,122 +869,57 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
     valid_pins = set(chicago_pin_universe["pin"].values)
 
     # --- Format registry ---
-    # Every xlsxwriter format object is defined here in full, keyed by the
-    # same name strings used in PERMITS_COLUMNS (fmt_locked / fmt /
-    # fmt). Each entry is completely self-contained.
+    # _base holds the properties shared by nearly every format. Individual
+    # formats override or extend only the keys that differ.
+    _base = {
+        "font_name": "Arial",
+        "locked": True,
+        "align": "left",
+        "text_wrap": False,
+        "num_format": "0.##",
+    }
+    _unlocked = {**_base, "locked": False}
+    _hyperlink = {"font_color": "blue", "underline": True}
+    _pin_num = {"num_format": "@"}
+    _date_num = {"num_format": "mm/dd/yyyy"}
+
     formats = {
         key: workbook.add_format(value)
         for key, value in {
-            "bold": {
-                "font_name": "Arial",
-                "locked": True,
-                "align": "left",
-                "text_wrap": False,
-                "num_format": "0.##",
-                "bold": True,
-            },
-            "locked_normal": {
-                "font_name": "Arial",
-                "locked": True,
-                "align": "left",
-                "text_wrap": False,
-                "num_format": "0.##",
-            },
-            "hyperlink_fmt": {
-                "font_name": "Arial",
-                "locked": True,
-                "align": "left",
-                "text_wrap": False,
-                "num_format": "0.##",
-                "font_color": "blue",
-                "underline": True,
-            },
-            "unlocked_normal": {
-                "font_name": "Arial",
-                "locked": False,
-                "align": "left",
-                "text_wrap": False,
-                "num_format": "0.##",
-            },
-            "unlocked_wrap": {
-                "font_name": "Arial",
-                "locked": False,
-                "align": "left",
-                "text_wrap": True,
-                "num_format": "0.##",
-            },
-            "checkbox": {
-                "font_name": "Arial",
-                "locked": False,
-                "align": "center",
-                "text_wrap": False,
-            },
-            "pin_fmt": {
-                "font_name": "Arial",
-                "locked": True,
-                "align": "left",
-                "text_wrap": False,
-                "num_format": "@",
-            },
-            "pin_unlocked_fmt": {
-                "font_name": "Arial",
-                "locked": False,
-                "align": "left",
-                "text_wrap": False,
-                "num_format": "@",
-            },
-            "date_fmt": {
-                "font_name": "Arial",
-                "locked": True,
-                "align": "left",
-                "text_wrap": False,
-                "num_format": "mm/dd/yyyy",
-            },
-            "date_unlocked_fmt": {
-                "font_name": "Arial",
-                "locked": False,
-                "align": "left",
-                "text_wrap": False,
-                "num_format": "mm/dd/yyyy",
-            },
-            "hyperlink_unlocked_fmt": {
-                "font_name": "Arial",
-                "locked": False,
-                "align": "left",
-                "text_wrap": False,
-                "num_format": "0.##",
-                "font_color": "blue",
-                "underline": True,
-            },
+            "bold": {**_base, "bold": True},
+            "locked_normal": _base,
+            "hyperlink_fmt": {**_base, **_hyperlink},
+            "unlocked_normal": _unlocked,
+            "unlocked_wrap": {**_unlocked, "text_wrap": True},
+            "checkbox": {**_unlocked, "align": "center"},
+            "pin_fmt": {**_base, **_pin_num},
+            "pin_unlocked_fmt": {**_unlocked, **_pin_num},
+            "date_fmt": {**_base, **_date_num},
+            "date_unlocked_fmt": {**_unlocked, **_date_num},
+            "hyperlink_unlocked_fmt": {**_unlocked, **_hyperlink},
         }.items()
     }
 
     ws = workbook.add_worksheet("Permits")
     ws.freeze_panes(1, 0)
 
-    # --- Apply column widths, default formats, and hide flags from the dict ---
-    for ci, col_def in PERMITS_COLUMNS.items():
+    # --- Apply column widths and default formats ---
+    for col_def in PERMITS_COLUMNS.values():
+        ci = col_def["col_idx"]
         col_fmt = formats[col_def["fmt"]]
-        if col_def["hidden"]:
-            ws.set_column(
-                ci,
-                ci,
-                col_def["width"],
-                formats["locked_normal"],
-                {"hidden": True},
-            )
-        else:
-            ws.set_column(ci, ci, col_def["width"], col_fmt)
+        ws.set_column(ci, ci, col_def["width"], col_fmt)
 
     # --- Header row ---
-    for ci, col_def in PERMITS_COLUMNS.items():
+    for col_def in PERMITS_COLUMNS.values():
+        ci = col_def["col_idx"]
         ws.write(0, ci, col_def["header"], formats["bold"])
 
     # --- Data rows ---
     for row_idx, (_, row_data) in enumerate(df_all.iterrows(), start=1):
         xl_row = row_idx
 
-        for ci, col_def in PERMITS_COLUMNS.items():
+        for col_def in PERMITS_COLUMNS.values():
+            ci = col_def["col_idx"]
             cell_type = col_def["cell_type"]
             error_check = col_def["error_check"]
 
@@ -1117,7 +968,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
             if val is None:
                 continue
 
-            # Hyperlink cells (value is an Excel HYPERLINK formula string)
+            # Hyperlink cells
             if isinstance(val, str) and val.startswith("=HYPERLINK("):
                 if cell_type == "suggested_pins":
                     ws.write_formula(
@@ -1127,18 +978,18 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                     ws.write_formula(xl_row, ci, val, formats["hyperlink_fmt"])
                 continue
 
-            # Suggested PINs non-hyperlink (plain text / "NO PIN FOUND")
+            # Suggested PINs non-hyperlink
             if cell_type == "suggested_pins":
                 ws.write(xl_row, ci, val, formats["unlocked_wrap"])
                 continue
 
-            # PIN: zero-pad to 14 digits, use text format
+            # PIN: zero-pad to 14 digits
             if cell_type == "pin":
                 val = str(val).zfill(14)
                 ws.write(xl_row, ci, val, cell_fmt)
                 continue
 
-            # Date: parse to datetime object and write as Excel date serial
+            # Date: parse and write as Excel date serial
             if cell_type == "date":
                 try:
                     parsed = pd.to_datetime(
@@ -1154,17 +1005,19 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
 
         ws.set_row(xl_row, None)  # auto height
 
-    # Conditional formatting to produce dynamic excel color changing
+    # Conditional formatting
     if n_data_rows > 0:
-        last_col = max(PERMITS_COLUMNS.keys())
+        errors_col = _col_letter("errors")
+        resolved_col = _col_letter("errors_resolved")
+        last_col = max(cd["col_idx"] for cd in PERMITS_COLUMNS.values())
         for criteria, color in [
             (
-                '=AND($B2="",$X2=FALSE)',
+                f'=AND(${errors_col}2="",${resolved_col}2=FALSE)',
                 "#FFD5A8",
             ),  # no errors, unchecked → orange
-            ('=$B2<>""', "#FFB3B3"),  # has errors → red
+            (f'=${errors_col}2<>""', "#FFB3B3"),  # has errors → red
             (
-                '=AND($X2=TRUE,$B2="")',
+                f'=AND(${resolved_col}2=TRUE,${errors_col}2="")',
                 "#B8D4E8",
             ),  # resolved → blue
         ]:
@@ -1180,14 +1033,13 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                 },
             )
 
-    # --- Data validation
+    # --- Data validation ---
     if n_data_rows > 0:
-        for ci, col_def in PERMITS_COLUMNS.items():
+        for col_def in PERMITS_COLUMNS.values():
             if col_def["validation"] is None:
                 continue
+            ci = col_def["col_idx"]
             v = col_def["validation"].copy()
-            # pop show_error / error_type so they can be passed as top-level
-            # kwargs to ws.data_validation
             show_error = v.pop("show_error", True)
             error_type = v.pop("error_type", "stop")
             ws.data_validation(
@@ -1198,7 +1050,8 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                 {"show_error": show_error, "error_type": error_type, **v},
             )
 
-        ws.autofilter(0, 0, n_data_rows, max(PERMITS_COLUMNS.keys()))
+        last_col = max(cd["col_idx"] for cd in PERMITS_COLUMNS.values())
+        ws.autofilter(0, 0, n_data_rows, last_col)
 
     # Protect sheet
     ws.protect(
