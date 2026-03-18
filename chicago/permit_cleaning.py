@@ -337,11 +337,14 @@ keywords = [
 
 # Join addresses and format columns
 def add_address_link_and_suggested_pins(df, chicago_pin_universe):
-    # Collapse multiple pins per address into a single comma-separated string
+    # Collapse multiple pins per address into a single comma-separated string.
+    # Rename to suggested_pins before the merge to avoid colliding with the
+    # existing pin column already in df.
     pin_map = (
         chicago_pin_universe.groupby(["prop_address_full"])["pin"]
         .apply(lambda pins: ", ".join(pins.astype(str).unique()))
         .reset_index()
+        .rename(columns={"pin": "suggested_pins"})
     )
 
     # Merge using the collapsed mapping
@@ -360,7 +363,6 @@ def add_address_link_and_suggested_pins(df, chicago_pin_universe):
     )
 
     # Suggested PINs (replace NA with empty string)
-    df = df.rename(columns={"pin": "suggested_pins"})
     df["suggested_pins"] = df["suggested_pins"].fillna("")
 
     # Drop the prop_address_full column (no longer needed)
