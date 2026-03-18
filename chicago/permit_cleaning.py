@@ -210,7 +210,7 @@ def format_pin(df):
     return df
 
 
-# Eliminate columns not included in permit upload and rename and order to match Smartfile excel format
+# Eliminate columns not included in permit upload and rename to simple internal names
 def organize_columns(df):
     address_columns = ["street_number", "street_direction", "street_name"]
     df[address_columns] = df[address_columns].fillna("")
@@ -221,14 +221,14 @@ def organize_columns(df):
     ).dt.strftime("%-m/%-d/%Y")
 
     column_renaming_dict = {
-        "pin_final": "PIN* [PARID]",
-        "permit_": "Local Permit No.* [USER28]",
-        "issue_date": "Issue Date* [PERMDT]",
-        "reported_cost": "Amount* [AMOUNT]",
-        "Address": "Applicant Street Address* [ADDR1]",
-        "city_state": "Applicant City, State, Zip* [ADDR3]",
-        "contact_1_name": "Applicant* [USER21]",
-        "work_description": "Notes [NOTE1]",
+        "pin_final": "pin",
+        "permit_": "permit_no",
+        "issue_date": "issue_date",
+        "reported_cost": "amount",
+        "Address": "applicant_street_address",
+        "city_state": "applicant_city_state_zip",
+        "contact_1_name": "applicant",
+        "work_description": "work_description",
     }
 
     data_relevant = df[
@@ -237,24 +237,14 @@ def organize_columns(df):
     data_renamed = data_relevant.rename(columns=column_renaming_dict)
 
     column_order = [
-        "PIN* [PARID]",
-        "Local Permit No.* [USER28]",
-        "Issue Date* [PERMDT]",
-        "Desc 1* [DESC1]",
-        "Desc 2 Code 1 [USER6]",
-        "Desc 2 Code 2 [USER7]",
-        "Desc 2 Code 3 [USER8]",
-        "Amount* [AMOUNT]",
-        "Assessable [IS_ASSESS]",
-        "Applicant Street Address* [ADDR1]",
-        "Applicant Address 2 [ADDR2]",
-        "Applicant City, State, Zip* [ADDR3]",
-        "Contact Phone* [PHONE]",
-        "Applicant* [USER21]",
-        "Notes [NOTE1]",
-        "Occupy Dt [UDATE1]",
-        "Submit Dt* [CERTDATE]",
-        "Est Comp Dt [UDATE2]",
+        "pin",
+        "permit_no",
+        "issue_date",
+        "amount",
+        "applicant_street_address",
+        "applicant_city_state_zip",
+        "applicant",
+        "work_description",
     ]
 
     data_all_cols = data_renamed.assign(
@@ -284,19 +274,15 @@ def shorten_applicant_names(df):
         "LIMITED": "LTD",
         "PLAZA": "PLZ",
     }
-    df["Applicant* [USER21]"] = df["Applicant* [USER21]"].replace(
-        name_shortening_dict, regex=True
-    )
+    df["applicant"] = df["applicant"].replace(name_shortening_dict, regex=True)
     return df
 
 
 def round_amount(df):
     """Round Amount to the nearest dollar — SmartFile does not accept
     decimal amounts."""
-    df["Amount* [AMOUNT]"] = (
-        pd.to_numeric(df["Amount* [AMOUNT]"], errors="coerce")
-        .round()
-        .astype("Int64")
+    df["amount"] = (
+        pd.to_numeric(df["amount"], errors="coerce").round().astype("Int64")
     )
     return df
 
@@ -361,27 +347,27 @@ def add_address_link_and_suggested_pins(df, chicago_pin_universe):
     # Merge using the collapsed mapping
     df = df.merge(
         pin_map,
-        left_on=["Applicant Street Address* [ADDR1]"],
+        left_on=["applicant_street_address"],
         right_on=["prop_address_full"],
         how="left",
     )
 
-    # Insert Property Address column right after the Applicant Street Address column
+    # Insert property_address column right after the applicant_street_address column
     df.insert(
-        df.columns.get_loc("Applicant Street Address* [ADDR1]") + 1,
-        "Property Address",
-        df["Applicant Street Address* [ADDR1]"],
+        df.columns.get_loc("applicant_street_address") + 1,
+        "property_address",
+        df["applicant_street_address"],
     )
 
     # Suggested PINs (replace NA with empty string)
-    df = df.rename(columns={"pin": "Suggested PINs"})
-    df["Suggested PINs"] = df["Suggested PINs"].fillna("")
+    df = df.rename(columns={"pin": "suggested_pins"})
+    df["suggested_pins"] = df["suggested_pins"].fillna("")
 
     # Drop the prop_address_full column (no longer needed)
     df = df.drop(columns=["prop_address_full"])
 
-    # Add hyperlink for the Property Address
-    df["Property Address"] = df["Property Address"].apply(
+    # Add hyperlink for the property_address
+    df["property_address"] = df["property_address"].apply(
         lambda addr: (
             f'=HYPERLINK("https://maps.cookcountyil.gov/cookviewer/?search={addr}", "{addr}")'
             if pd.notna(addr)
@@ -403,18 +389,16 @@ def add_address_link_and_suggested_pins(df, chicago_pin_universe):
         # This will be a list of comma separated pins
         return pin_str
 
-    df["Suggested PINs"] = df["Suggested PINs"].apply(make_pin_hyperlink)
+    df["suggested_pins"] = df["suggested_pins"].apply(make_pin_hyperlink)
 
     # Create a comma separated list of matched keywords. This is derived from
     # the list called keywords.
     df = df.assign(
-        **{
-            "Matched Keywords": df["Notes [NOTE1]"].apply(
-                lambda note: ", ".join(
-                    [kw for kw in keywords if kw.lower() in str(note).lower()]
-                )
+        matched_keywords=df["work_description"].apply(
+            lambda note: ", ".join(
+                [kw for kw in keywords if kw.lower() in str(note).lower()]
             )
-        }
+        )
     )
     return df
 
@@ -437,12 +421,12 @@ def deduplicate_permits(cursor, df, start_date, end_date):
     )
     existing_permits = as_pandas(cursor)
     workbook_to_iasworld_col_map = {
-        "PIN* [PARID]": "parid",
-        "Issue Date* [PERMDT]": "permdt",
-        "Amount* [AMOUNT]": "amount",
-        "Applicant Street Address* [ADDR1]": "note2",
-        "Local Permit No.* [USER28]": "user28",
-        "Notes [NOTE1]": "user43",
+        "pin": "parid",
+        "issue_date": "permdt",
+        "amount": "amount",
+        "applicant_street_address": "note2",
+        "permit_no": "user28",
+        "work_description": "user43",
     }
     new_permits = df.copy()
     for workbook_key, iasworld_key in workbook_to_iasworld_col_map.items():
@@ -582,7 +566,7 @@ PERMITS_COLUMNS = {
     "suggested_pins": {
         "col_idx": 2,
         "header": "Suggested PINs",
-        "src": "Suggested PINs",
+        "src": "suggested_pins",
         "width": 50,
         "locked": False,
         "fmt": "unlocked_wrap",
@@ -602,7 +586,7 @@ PERMITS_COLUMNS = {
     "pin": {
         "col_idx": 3,
         "header": "PIN",
-        "src": "PIN* [PARID]",
+        "src": "pin",
         "width": 25,
         "locked": False,
         "fmt": "pin_unlocked_fmt",
@@ -621,7 +605,7 @@ PERMITS_COLUMNS = {
     "suggested_property_address": {
         "col_idx": 4,
         "header": "Suggested Property Address",
-        "src": "Property Address",
+        "src": "property_address",
         "width": 25,
         "locked": True,
         "fmt": "hyperlink_fmt",
@@ -631,7 +615,7 @@ PERMITS_COLUMNS = {
     "applicant_street_address": {
         "col_idx": 5,
         "header": "Applicant Street Address",
-        "src": "Applicant Street Address* [ADDR1]",
+        "src": "applicant_street_address",
         "width": 25,
         "locked": False,
         "fmt": "unlocked_normal",
@@ -651,7 +635,7 @@ PERMITS_COLUMNS = {
     "local_permit_no": {
         "col_idx": 6,
         "header": "Local Permit No.",
-        "src": "Local Permit No.* [USER28]",
+        "src": "permit_no",
         "width": 25,
         "locked": True,
         "fmt": "locked_normal",
@@ -661,7 +645,7 @@ PERMITS_COLUMNS = {
     "issue_date": {
         "col_idx": 7,
         "header": "Issue Date",
-        "src": "Issue Date* [PERMDT]",
+        "src": "issue_date",
         "width": 25,
         "locked": False,
         "fmt": "date_unlocked_fmt",
@@ -680,7 +664,7 @@ PERMITS_COLUMNS = {
     "amount": {
         "col_idx": 8,
         "header": "Amount",
-        "src": "Amount* [AMOUNT]",
+        "src": "amount",
         "width": 25,
         "locked": False,
         "fmt": "unlocked_normal",
@@ -697,8 +681,8 @@ PERMITS_COLUMNS = {
     # col 9  J — Applicant City, State, Zip (unlocked)
     "applicant_city_state_zip": {
         "col_idx": 9,
-        "header": "Applicant City, State, Zip* [ADDR3]",
-        "src": "Applicant City, State, Zip* [ADDR3]",
+        "header": "Applicant City, State, Zip",
+        "src": "applicant_city_state_zip",
         "width": 25,
         "locked": False,
         "fmt": "unlocked_normal",
@@ -708,7 +692,7 @@ PERMITS_COLUMNS = {
     "applicant": {
         "col_idx": 10,
         "header": "Applicant",
-        "src": "Applicant* [USER21]",
+        "src": "applicant",
         "width": 25,
         "locked": False,
         "fmt": "unlocked_normal",
@@ -728,7 +712,7 @@ PERMITS_COLUMNS = {
     "matched_keywords": {
         "col_idx": 11,
         "header": "Matched Keywords",
-        "src": "Matched Keywords",
+        "src": "matched_keywords",
         "width": 25,
         "locked": True,
         "fmt": "locked_normal",
@@ -738,7 +722,7 @@ PERMITS_COLUMNS = {
     "work_description": {
         "col_idx": 12,
         "header": "Work Description",
-        "src": "Notes [NOTE1]",
+        "src": "work_description",
         "width": 50,
         "locked": False,
         "fmt": "unlocked_normal",
