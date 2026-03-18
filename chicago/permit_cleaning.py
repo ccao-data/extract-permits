@@ -522,10 +522,6 @@ def _build_textjoin_errors_formula(row: int) -> str:
 # PERMITS_COLUMNS
 #
 # Key for every column on the "Permits" sheet.
-# Keys are human-readable string identifiers. Each entry carries a "col_idx"
-# field (0-based) that drives the actual Excel column position.
-# Hidden columns (Desc 1, Desc 2 Codes 1-3, Assessable, Applicant Address 2,
-# Contact Phone, Occupy Dt, Submit Dt, Est Comp Dt) have been removed.
 #
 # "locked" controls whether the column is protected under sheet protection.
 # Locked columns: Row Number, Errors, Suggested Property Address,
@@ -573,8 +569,9 @@ PERMITS_COLUMNS = {
         "cell_type": "suggested_pins",
         "validation": {
             "validate": "custom",
-            # We want C2 to trigger any time a change is coded to warn because
-            # locking makes it hard to copy values into the PIN column.
+            # We want C2 to trigger any time a change is coded to warn that the
+            # edit may relate to column PIN. Locking this column makes copying
+            # and pasting difficult for the user.
             "value": '=C2="Impossible Match"',
             "error_type": "warning",
             "show_error": True,
