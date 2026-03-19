@@ -22,6 +22,7 @@ import os
 import re
 import sys
 from datetime import datetime
+from enum import Enum
 
 import numpy as np
 import pandas as pd
@@ -511,18 +512,55 @@ def _build_textjoin_errors_formula(row: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# CellFormat
+#
+# Each member's value is its string key. Enumerate the characteristics that
+# define each cell to it's name which will be used in the PERMITS_COLUMN
+# section
+# ---------------------------------------------------------------------------
+class CellFormat(Enum):
+    BOLD = "bold"
+    LOCKED_NORMAL = "locked_normal"
+    HYPERLINK_FMT = "hyperlink_fmt"
+    UNLOCKED_NORMAL = "unlocked_normal"
+    UNLOCKED_WRAP = "unlocked_wrap"
+    CHECKBOX = "checkbox"
+    PIN_UNLOCKED_FMT = "pin_unlocked_fmt"
+    DATE_UNLOCKED_FMT = "date_unlocked_fmt"
+    HYPERLINK_UNLOCKED_FMT = "hyperlink_unlocked_fmt"
+
+
+# Shared property blocks
+_base = {
+    "font_name": "Arial",
+    "locked": True,
+    "align": "left",
+    "text_wrap": False,
+    "num_format": "0.##",
+}
+_unlocked = {**_base, "locked": False}
+_hyperlink = {"font_color": "blue", "underline": True}
+_pin_num = {"num_format": "@"}
+_date_num = {"num_format": "mm/dd/yyyy"}
+
+# Add the special characteristics to each format which makes them unique
+FORMAT_SPECS: dict[CellFormat, dict] = {
+    CellFormat.BOLD: {**_base, "bold": True},
+    CellFormat.LOCKED_NORMAL: _base,
+    CellFormat.HYPERLINK_FMT: {**_base, **_hyperlink},
+    CellFormat.UNLOCKED_NORMAL: _unlocked,
+    CellFormat.UNLOCKED_WRAP: {**_unlocked, "text_wrap": True},
+    CellFormat.CHECKBOX: {**_unlocked, "align": "center"},
+    CellFormat.PIN_UNLOCKED_FMT: {**_unlocked, **_pin_num},
+    CellFormat.DATE_UNLOCKED_FMT: {**_unlocked, **_date_num},
+    CellFormat.HYPERLINK_UNLOCKED_FMT: {**_unlocked, **_hyperlink},
+}
+
+
+# ---------------------------------------------------------------------------
 # PERMITS_COLUMNS
 #
 # Key for every column on the "Permits" sheet.
-#
-# Format names in use:
-#   locked_normal          — locked, no wrap
-#   unlocked_normal        — unlocked, no wrap
-#   unlocked_wrap          — unlocked, text_wrap=True
-#   pin_unlocked_fmt       — unlocked, num_format="@" (text, preserves leading zeros)
-#   date_unlocked_fmt      — unlocked, mm/dd/yyyy
-#   hyperlink_fmt          — locked, blue underline
-#   checkbox               — unlocked, center-aligned
 # ---------------------------------------------------------------------------
 PERMITS_COLUMNS = {
     # col 0  A — Row Number
@@ -531,7 +569,7 @@ PERMITS_COLUMNS = {
         "header": "Row Number",
         "src": None,
         "width": 12,
-        "fmt": "locked_normal",
+        "fmt": CellFormat.LOCKED_NORMAL,
         "cell_type": "row_number",
     },
     # col 1  B — Errors
@@ -540,7 +578,7 @@ PERMITS_COLUMNS = {
         "header": "Errors",
         "src": None,
         "width": 67,
-        "fmt": "locked_normal",
+        "fmt": CellFormat.LOCKED_NORMAL,
         "cell_type": "formula",
     },
     # col 2  C — Suggested PINs
@@ -549,7 +587,7 @@ PERMITS_COLUMNS = {
         "header": "Suggested PINs",
         "src": "suggested_pins",
         "width": 50,
-        "fmt": "unlocked_wrap",
+        "fmt": CellFormat.UNLOCKED_WRAP,
         "cell_type": "suggested_pins",
         "validation": {
             "validate": "custom",
@@ -569,7 +607,7 @@ PERMITS_COLUMNS = {
         "header": "PIN",
         "src": "pin",
         "width": 25,
-        "fmt": "pin_unlocked_fmt",
+        "fmt": CellFormat.PIN_UNLOCKED_FMT,
         "cell_type": "pin",
         "validation": {
             "validate": "custom",
@@ -587,7 +625,7 @@ PERMITS_COLUMNS = {
         "header": "Suggested Property Address",
         "src": "property_address",
         "width": 25,
-        "fmt": "hyperlink_fmt",
+        "fmt": CellFormat.HYPERLINK_FMT,
         "cell_type": "hyperlink_locked",
     },
     # col 5  F — Applicant Street Address
@@ -596,7 +634,7 @@ PERMITS_COLUMNS = {
         "header": "Applicant Street Address",
         "src": "applicant_street_address",
         "width": 25,
-        "fmt": "unlocked_normal",
+        "fmt": CellFormat.UNLOCKED_NORMAL,
         "cell_type": "normal",
         "validation": {
             "validate": "text length",
@@ -615,7 +653,7 @@ PERMITS_COLUMNS = {
         "header": "Local Permit No.",
         "src": "permit_no",
         "width": 25,
-        "fmt": "locked_normal",
+        "fmt": CellFormat.LOCKED_NORMAL,
         "cell_type": "normal",
     },
     # col 7  H — Issue Date
@@ -624,7 +662,7 @@ PERMITS_COLUMNS = {
         "header": "Issue Date",
         "src": "issue_date",
         "width": 25,
-        "fmt": "date_unlocked_fmt",
+        "fmt": CellFormat.DATE_UNLOCKED_FMT,
         "cell_type": "date",
         "validation": {
             "validate": "date",
@@ -642,7 +680,7 @@ PERMITS_COLUMNS = {
         "header": "Amount",
         "src": "amount",
         "width": 25,
-        "fmt": "unlocked_normal",
+        "fmt": CellFormat.UNLOCKED_NORMAL,
         "cell_type": "normal",
         "validation": {
             "validate": "custom",
@@ -659,7 +697,7 @@ PERMITS_COLUMNS = {
         "header": "Applicant City, State, Zip",
         "src": "applicant_city_state_zip",
         "width": 25,
-        "fmt": "unlocked_normal",
+        "fmt": CellFormat.UNLOCKED_NORMAL,
         "cell_type": "normal",
     },
     # col 10  K — Applicant
@@ -668,7 +706,7 @@ PERMITS_COLUMNS = {
         "header": "Applicant",
         "src": "applicant",
         "width": 25,
-        "fmt": "unlocked_normal",
+        "fmt": CellFormat.UNLOCKED_NORMAL,
         "cell_type": "normal",
         "validation": {
             "validate": "text length",
@@ -687,7 +725,7 @@ PERMITS_COLUMNS = {
         "header": "Matched Keywords",
         "src": "matched_keywords",
         "width": 25,
-        "fmt": "locked_normal",
+        "fmt": CellFormat.LOCKED_NORMAL,
         "cell_type": "normal",
     },
     # col 12  M — Work Description
@@ -696,7 +734,7 @@ PERMITS_COLUMNS = {
         "header": "Work Description",
         "src": "work_description",
         "width": 50,
-        "fmt": "unlocked_normal",
+        "fmt": CellFormat.UNLOCKED_NORMAL,
         "cell_type": "normal",
         "validation": {
             "validate": "text length",
@@ -715,7 +753,7 @@ PERMITS_COLUMNS = {
         "header": "Errors are Resolved",
         "src": None,
         "width": 25,
-        "fmt": "checkbox",
+        "fmt": CellFormat.CHECKBOX,
         "cell_type": "checkbox",
         "validation": {
             "validate": "custom",
@@ -732,7 +770,7 @@ PERMITS_COLUMNS = {
         "header": "Reviewer Name",
         "src": None,
         "width": 25,
-        "fmt": "unlocked_normal",
+        "fmt": CellFormat.UNLOCKED_NORMAL,
         "cell_type": "normal",
     },
     # col 15  P — Reviewer Notes
@@ -741,7 +779,7 @@ PERMITS_COLUMNS = {
         "header": "Reviewer Notes",
         "src": None,
         "width": 25,
-        "fmt": "unlocked_normal",
+        "fmt": CellFormat.UNLOCKED_NORMAL,
         "cell_type": "normal",
     },
 }
@@ -781,34 +819,13 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
 
     n_data_rows = len(df_all)
 
-    # --- Format registry ---
-    # _base holds the properties shared by nearly every format. Individual
-    # formats override or extend only the keys that differ.
-    _base = {
-        "font_name": "Arial",
-        "locked": True,
-        "align": "left",
-        "text_wrap": False,
-        "num_format": "0.##",
-    }
-    _unlocked = {**_base, "locked": False}
-    _hyperlink = {"font_color": "blue", "underline": True}
-    _pin_num = {"num_format": "@"}
-    _date_num = {"num_format": "mm/dd/yyyy"}
-
+    # Build xlsxwriter format objects from the module-level FORMAT_SPECS dict.
+    # Keys are CellFormat enum members, so any invalid fmt value in
+    # PERMITS_COLUMNS will raise a KeyError immediately rather than silently
+    # applying the wrong style.
     formats = {
-        key: workbook.add_format(value)
-        for key, value in {
-            "bold": {**_base, "bold": True},
-            "locked_normal": _base,
-            "hyperlink_fmt": {**_base, **_hyperlink},
-            "unlocked_normal": _unlocked,
-            "unlocked_wrap": {**_unlocked, "text_wrap": True},
-            "checkbox": {**_unlocked, "align": "center"},
-            "pin_unlocked_fmt": {**_unlocked, **_pin_num},
-            "date_unlocked_fmt": {**_unlocked, **_date_num},
-            "hyperlink_unlocked_fmt": {**_unlocked, **_hyperlink},
-        }.items()
+        member: workbook.add_format(spec)
+        for member, spec in FORMAT_SPECS.items()
     }
 
     ws = workbook.add_worksheet("Permits")
@@ -822,7 +839,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
     # --- Header row ---
     for col_def in PERMITS_COLUMNS_BY_IDX:
         ci = col_def["col_idx"]
-        ws.write(0, ci, col_def["header"], formats["bold"])
+        ws.write(0, ci, col_def["header"], formats[CellFormat.BOLD])
 
     # --- Data rows ---
     for row_idx, (_, row_data) in enumerate(df_all.iterrows(), start=1):
@@ -848,7 +865,9 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                 continue
 
             if cell_type == "checkbox":
-                ws.insert_checkbox(xl_row, ci, False, formats["checkbox"])
+                ws.insert_checkbox(
+                    xl_row, ci, False, formats[CellFormat.CHECKBOX]
+                )
                 continue
 
             # --- Source-value cells ---
@@ -868,15 +887,20 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
             if isinstance(val, str) and val.startswith("=HYPERLINK("):
                 if cell_type == "suggested_pins":
                     ws.write_formula(
-                        xl_row, ci, val, formats["hyperlink_unlocked_fmt"]
+                        xl_row,
+                        ci,
+                        val,
+                        formats[CellFormat.HYPERLINK_UNLOCKED_FMT],
                     )
                 else:
-                    ws.write_formula(xl_row, ci, val, formats["hyperlink_fmt"])
+                    ws.write_formula(
+                        xl_row, ci, val, formats[CellFormat.HYPERLINK_FMT]
+                    )
                 continue
 
             # Suggested PINs non-hyperlink (plain text / "NO PIN FOUND")
             if cell_type == "suggested_pins":
-                ws.write(xl_row, ci, val, formats["unlocked_wrap"])
+                ws.write(xl_row, ci, val, formats[CellFormat.UNLOCKED_WRAP])
                 continue
 
             # PIN: zero-pad to 14 digits
