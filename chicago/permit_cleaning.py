@@ -477,21 +477,14 @@ def gen_file_base_name(start_date, end_date):
 
 def _col_letter(col_name: str) -> str:
     """Return the Excel column letter for a named column in PERMITS_COLUMNS."""
-    col_idx = PERMITS_COLUMNS[col_name]["col_idx"]
-    # Convert 0-based index to Excel letter(s) (A, B, ..., Z, AA, ...)
-    letters = ""
-    n = col_idx + 1  # Excel columns are 1-based
-    while n > 0:
-        n, remainder = divmod(n - 1, 26)
-        letters = chr(65 + remainder) + letters
-    return letters
+    return xlsxwriter.utility.xl_col_to_name(
+        PERMITS_COLUMNS[col_name]["col_idx"]
+    )
 
 
 def _build_textjoin_errors_formula(row: int) -> str:
     """Return the TEXTJOIN formula for the Errors column at a given row
-    to catch common problems that require manual resolution.
-    Column letters are derived dynamically from PERMITS_COLUMNS so that
-    this function stays correct if columns are reordered or added.
+    to catch problems that will block IasWorld upload.
     """
     pin = _col_letter("pin")
     addr = _col_letter("applicant_street_address")
@@ -525,11 +518,6 @@ def _build_textjoin_errors_formula(row: int) -> str:
 #
 # Key for every column on the "Permits" sheet.
 #
-# "locked" controls whether the column is protected under sheet protection.
-# Locked columns: Row Number, Errors, Suggested Property Address,
-#                 Local Permit No., Matched Keywords.
-# All other columns are unlocked (analyst-editable).
-#
 # Format names in use:
 #   locked_normal          — locked, no wrap
 #   unlocked_normal        — unlocked, no wrap
@@ -540,33 +528,30 @@ def _build_textjoin_errors_formula(row: int) -> str:
 #   checkbox               — unlocked, center-aligned
 # ---------------------------------------------------------------------------
 PERMITS_COLUMNS = {
-    # col 0  A — Row Number (locked)
+    # col 0  A — Row Number
     "row_number": {
         "col_idx": 0,
         "header": "Row Number",
         "src": None,
         "width": 12,
-        "locked": True,
         "fmt": "locked_normal",
         "cell_type": "row_number",
     },
-    # col 1  B — Errors (locked)
+    # col 1  B — Errors
     "errors": {
         "col_idx": 1,
         "header": "Errors",
         "src": None,
         "width": 67,
-        "locked": True,
         "fmt": "locked_normal",
         "cell_type": "formula",
     },
-    # col 2  C — Suggested PINs (unlocked)
+    # col 2  C — Suggested PINs
     "suggested_pins": {
         "col_idx": 2,
         "header": "Suggested PINs",
         "src": "suggested_pins",
         "width": 50,
-        "locked": False,
         "fmt": "unlocked_wrap",
         "cell_type": "suggested_pins",
         "validation": {
@@ -581,13 +566,12 @@ PERMITS_COLUMNS = {
             "error_message": "Make sure that changes to PIN values are in PIN column.",
         },
     },
-    # col 3  D — PIN (unlocked)
+    # col 3  D — PIN
     "pin": {
         "col_idx": 3,
         "header": "PIN",
         "src": "pin",
         "width": 25,
-        "locked": False,
         "fmt": "pin_unlocked_fmt",
         "cell_type": "pin",
         "validation": {
@@ -600,23 +584,21 @@ PERMITS_COLUMNS = {
             "error_message": "PIN must be 14 digits and exist in the Universe of Valid PINs.",
         },
     },
-    # col 4  E — Suggested Property Address (locked)
+    # col 4  E — Suggested Property Address
     "suggested_property_address": {
         "col_idx": 4,
         "header": "Suggested Property Address",
         "src": "property_address",
         "width": 25,
-        "locked": True,
         "fmt": "hyperlink_fmt",
         "cell_type": "hyperlink_locked",
     },
-    # col 5  F — Applicant Street Address (unlocked)
+    # col 5  F — Applicant Street Address
     "applicant_street_address": {
         "col_idx": 5,
         "header": "Applicant Street Address",
         "src": "applicant_street_address",
         "width": 25,
-        "locked": False,
         "fmt": "unlocked_normal",
         "cell_type": "normal",
         "validation": {
@@ -630,23 +612,21 @@ PERMITS_COLUMNS = {
             "error_message": "Address must be between 1 and 40 characters.",
         },
     },
-    # col 6  G — Local Permit No. (locked)
+    # col 6  G — Local Permit No.
     "local_permit_no": {
         "col_idx": 6,
         "header": "Local Permit No.",
         "src": "permit_no",
         "width": 25,
-        "locked": True,
         "fmt": "locked_normal",
         "cell_type": "normal",
     },
-    # col 7  H — Issue Date (unlocked)
+    # col 7  H — Issue Date
     "issue_date": {
         "col_idx": 7,
         "header": "Issue Date",
         "src": "issue_date",
         "width": 25,
-        "locked": False,
         "fmt": "date_unlocked_fmt",
         "cell_type": "date",
         "validation": {
@@ -659,13 +639,12 @@ PERMITS_COLUMNS = {
             "error_message": "Issue Date must be a valid date.",
         },
     },
-    # col 8  I — Amount (unlocked)
+    # col 8  I — Amount
     "amount": {
         "col_idx": 8,
         "header": "Amount",
         "src": "amount",
         "width": 25,
-        "locked": False,
         "fmt": "unlocked_normal",
         "cell_type": "normal",
         "validation": {
@@ -677,23 +656,21 @@ PERMITS_COLUMNS = {
             "error_message": "Amount must be a whole number between 0 and 2,147,483,647.",
         },
     },
-    # col 9  J — Applicant City, State, Zip (unlocked)
+    # col 9  J — Applicant City, State, Zip
     "applicant_city_state_zip": {
         "col_idx": 9,
         "header": "Applicant City, State, Zip",
         "src": "applicant_city_state_zip",
         "width": 25,
-        "locked": False,
         "fmt": "unlocked_normal",
         "cell_type": "normal",
     },
-    # col 10  K — Applicant (unlocked)
+    # col 10  K — Applicant
     "applicant": {
         "col_idx": 10,
         "header": "Applicant",
         "src": "applicant",
         "width": 25,
-        "locked": False,
         "fmt": "unlocked_normal",
         "cell_type": "normal",
         "validation": {
@@ -707,23 +684,21 @@ PERMITS_COLUMNS = {
             "error_message": "Applicant must be between 1 and 50 characters.",
         },
     },
-    # col 11  L — Matched Keywords (locked)
+    # col 11  L — Matched Keywords
     "matched_keywords": {
         "col_idx": 11,
         "header": "Matched Keywords",
         "src": "matched_keywords",
         "width": 25,
-        "locked": True,
         "fmt": "locked_normal",
         "cell_type": "normal",
     },
-    # col 12  M — Work Description (unlocked)
+    # col 12  M — Work Description
     "work_description": {
         "col_idx": 12,
         "header": "Work Description",
         "src": "work_description",
         "width": 50,
-        "locked": False,
         "fmt": "unlocked_normal",
         "cell_type": "normal",
         "validation": {
@@ -737,13 +712,12 @@ PERMITS_COLUMNS = {
             "error_message": "Work Description must be between 1 and 2000 characters.",
         },
     },
-    # col 13  N — Errors are Resolved (unlocked checkbox)
+    # col 13  N — Errors are Resolved
     "errors_resolved": {
         "col_idx": 13,
         "header": "Errors are Resolved",
         "src": None,
         "width": 25,
-        "locked": False,
         "fmt": "checkbox",
         "cell_type": "checkbox",
         "validation": {
@@ -755,23 +729,21 @@ PERMITS_COLUMNS = {
             "error_message": "This row still has errors in column B. Fix them before marking resolved.",
         },
     },
-    # col 14  O — Reviewer Name (unlocked)
+    # col 14  O — Reviewer Name
     "reviewer_name": {
         "col_idx": 14,
         "header": "Reviewer Name",
         "src": None,
         "width": 25,
-        "locked": False,
         "fmt": "unlocked_normal",
         "cell_type": "normal",
     },
-    # col 15  P — Reviewer Notes (unlocked)
+    # col 15  P — Reviewer Notes
     "reviewer_notes": {
         "col_idx": 15,
         "header": "Reviewer Notes",
         "src": None,
         "width": 25,
-        "locked": False,
         "fmt": "unlocked_normal",
         "cell_type": "normal",
     },
