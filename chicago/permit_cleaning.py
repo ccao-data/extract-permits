@@ -821,8 +821,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
 
     # Build xlsxwriter format objects from the module-level FORMAT_SPECS dict.
     # Keys are CellFormat enum members, so any invalid fmt value in
-    # PERMITS_COLUMNS will raise a KeyError immediately rather than silently
-    # applying the wrong style.
+    # PERMITS_COLUMNS should raise an error.
     formats = {
         member: workbook.add_format(spec)
         for member, spec in FORMAT_SPECS.items()
