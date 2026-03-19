@@ -337,9 +337,6 @@ keywords = [
 
 # Join addresses and format columns
 def add_address_link_and_suggested_pins(df, chicago_pin_universe):
-    # Collapse multiple pins per address into a single comma-separated string.
-    # Rename to suggested_pins before the merge to avoid colliding with the
-    # existing pin column already in df.
     pin_map = (
         chicago_pin_universe.groupby(["prop_address_full"])["pin"]
         .apply(lambda pins: ", ".join(pins.astype(str).unique()))
@@ -556,9 +553,9 @@ PERMITS_COLUMNS = {
         "cell_type": "suggested_pins",
         "validation": {
             "validate": "custom",
-            # We want C2 to trigger any time a change is coded to warn that the
-            # edit may relate to column PIN. Locking this column makes copying
-            # and pasting difficult for the user.
+            # We want an error validation to trigger any time a change is implemented.
+            # But we cannot lock the column because it makes copying and pasting between
+            # columns difficult.
             "value": '=C2="Impossible Match"',
             "error_type": "warning",
             "show_error": True,
@@ -867,7 +864,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
             if val is None:
                 continue
 
-            # Hyperlink cells
+            # Hyperlink cells (value is an Excel HYPERLINK formula string)
             if isinstance(val, str) and val.startswith("=HYPERLINK("):
                 if cell_type == "suggested_pins":
                     ws.write_formula(
@@ -877,7 +874,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                     ws.write_formula(xl_row, ci, val, formats["hyperlink_fmt"])
                 continue
 
-            # Suggested PINs non-hyperlink
+            # Suggested PINs non-hyperlink (plain text / "NO PIN FOUND")
             if cell_type == "suggested_pins":
                 ws.write(xl_row, ci, val, formats["unlocked_wrap"])
                 continue
@@ -904,7 +901,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
 
         ws.set_row(xl_row, None)  # auto height
 
-    # Conditional formatting
+    # Conditional formatting to produce dynamic excel color changing
     if n_data_rows > 0:
         errors_col = _col_letter("errors")
         resolved_col = _col_letter("errors_resolved")
