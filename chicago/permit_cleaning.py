@@ -929,7 +929,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                 },
             )
 
-    # --- Data validation ---
+    # --- Data validation
     if n_data_rows > 0:
         for col_def in PERMITS_COLUMNS_BY_IDX:
             v = col_def.get("validation")
