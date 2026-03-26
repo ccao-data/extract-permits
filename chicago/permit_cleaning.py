@@ -17,12 +17,12 @@ The script also expects three positional arguments:
     * deduplicate (bool): Whether to filter out permits that already exist in iasworld
 """
 
+import copy
 import decimal
 import os
 import re
 import sys
 from datetime import datetime
-from enum import Enum
 
 import numpy as np
 import pandas as pd
@@ -31,6 +31,312 @@ import xlsxwriter
 from pyathena import connect
 from pyathena.cursor import Cursor
 from pyathena.pandas.util import as_pandas
+
+# Shared property blocks
+_base = {
+    "font_name": "Arial",
+    "locked": True,
+    "align": "left",
+    "text_wrap": False,
+    "num_format": "0.##",
+}
+_unlocked = {**_base, "locked": False}
+_hyperlink = {"font_color": "blue", "underline": True}
+_pin_num = {"num_format": "@"}
+_date_num = {"num_format": "mm/dd/yyyy"}
+
+# Cell format constants — keyed by string name for hashable lookups
+FORMAT_BOLD = "FORMAT_BOLD"
+FORMAT_LOCKED_NORMAL = "FORMAT_LOCKED_NORMAL"
+FORMAT_HYPERLINK = "FORMAT_HYPERLINK"
+FORMAT_UNLOCKED_NORMAL = "FORMAT_UNLOCKED_NORMAL"
+FORMAT_UNLOCKED_WRAP = "FORMAT_UNLOCKED_WRAP"
+FORMAT_CHECKBOX = "FORMAT_CHECKBOX"
+FORMAT_PIN_UNLOCKED = "FORMAT_PIN_UNLOCKED"
+FORMAT_DATE_UNLOCKED = "FORMAT_DATE_UNLOCKED"
+FORMAT_HYPERLINK_UNLOCKED = "FORMAT_HYPERLINK_UNLOCKED"
+
+# Mapping from format name → xlsxwriter property dict
+FORMAT_SPECS = {
+    FORMAT_BOLD: {**_base, "bold": True},
+    FORMAT_LOCKED_NORMAL: _base,
+    FORMAT_HYPERLINK: {**_base, **_hyperlink},
+    FORMAT_UNLOCKED_NORMAL: _unlocked,
+    FORMAT_UNLOCKED_WRAP: {**_unlocked, "text_wrap": True},
+    FORMAT_CHECKBOX: {**_unlocked, "align": "center"},
+    FORMAT_PIN_UNLOCKED: {**_unlocked, **_pin_num},
+    FORMAT_DATE_UNLOCKED: {**_unlocked, **_date_num},
+    FORMAT_HYPERLINK_UNLOCKED: {**_unlocked, **_hyperlink},
+}
+
+
+# PERMIT_COLUMNS
+#
+# Key for every column on the "Permits" sheet.
+# ---------------------------------------------------------------------------
+PERMIT_COLUMNS = {
+    # col 0  A — Row Number
+    "row_number": {
+        "col_idx": 0,
+        "header": "Row Number",
+        "src": None,
+        "width": 12,
+        "fmt": FORMAT_LOCKED_NORMAL,
+        "cell_type": "row_number",
+    },
+    # col 1  B — Errors
+    "errors": {
+        "col_idx": 1,
+        "header": "Errors",
+        "src": None,
+        "width": 67,
+        "fmt": FORMAT_LOCKED_NORMAL,
+        "cell_type": "formula",
+    },
+    # col 2  C — Suggested PINs
+    "suggested_pins": {
+        "col_idx": 2,
+        "header": "Suggested PINs",
+        "src": "suggested_pins",
+        "width": 50,
+        "fmt": FORMAT_UNLOCKED_WRAP,
+        "cell_type": "suggested_pins",
+        "validation": {
+            "validate": "custom",
+            # We want an error validation to trigger any time a change is implemented.
+            # But we cannot lock the column because it makes copying and pasting between
+            # columns difficult.
+            "value": '={COL}2="Impossible Match"',
+            "error_type": "warning",
+            "show_error": True,
+            "error_title": "Suggested PINs",
+            "error_message": "Make sure that changes to PIN values are in PIN column.",
+        },
+    },
+    # col 3  D — PIN
+    "pin": {
+        "col_idx": 3,
+        "header": "PIN",
+        "src": "pin",
+        "width": 25,
+        "fmt": FORMAT_PIN_UNLOCKED,
+        "cell_type": "pin",
+        "error_formula": lambda row, col: (
+            f'IF(LEN(TRIM({col}{row}))=0, "Missing PIN14", ""), '
+            f'IF(COUNTIF(\'Universe of Valid PINs\'!A:A, {col}{row}) > 0, "", "Provide Valid Pin"), '
+            f'IF(LEN(TRIM({col}{row}))<>14, "PIN is not 14 digits", "")'
+        ),
+        "validation": {
+            "validate": "custom",
+            "value": "=AND(LEN(TRIM({COL}2))=14,COUNTIF('Universe of Valid PINs'!$A:$A,{COL}2)>0)",
+            "ignore_blank": False,
+            "show_error": True,
+            "error_type": "stop",
+            "error_title": "Invalid PIN",
+            "error_message": "PIN must be 14 digits and exist in the Universe of Valid PINs.",
+        },
+    },
+    # col 4  E — Suggested Property Address
+    "suggested_property_address": {
+        "col_idx": 4,
+        "header": "Suggested Property Address",
+        "src": "property_address",
+        "width": 25,
+        "fmt": FORMAT_HYPERLINK,
+        "cell_type": "hyperlink_locked",
+    },
+    # col 5  F — Applicant Street Address
+    "applicant_street_address": {
+        "col_idx": 5,
+        "header": "Applicant Street Address",
+        "src": "applicant_street_address",
+        "width": 25,
+        "fmt": FORMAT_UNLOCKED_NORMAL,
+        "cell_type": "normal",
+        "error_formula": lambda row, col: (
+            f'IF(LEN(TRIM({col}{row}))=0, "Missing Applicant Street Address", ""), '
+            f'IF(LEN({col}{row})>40, "Address > 40 characters", "")'
+        ),
+        "validation": {
+            "validate": "text length",
+            "criteria": "between",
+            "minimum": 1,
+            "maximum": 40,
+            "show_error": True,
+            "error_type": "stop",
+            "error_title": "Invalid Address",
+            "error_message": "Address must be between 1 and 40 characters.",
+        },
+    },
+    # col 6  G — Local Permit No.
+    "local_permit_no": {
+        "col_idx": 6,
+        "header": "Local Permit No.",
+        "src": "permit_no",
+        "width": 25,
+        "fmt": FORMAT_LOCKED_NORMAL,
+        "cell_type": "normal",
+        "error_formula": lambda row, col: (
+            f'IF(LEN(TRIM({col}{row}))=0, "Missing Permit Number", "")'
+        ),
+    },
+    # col 7  H — Issue Date
+    "issue_date": {
+        "col_idx": 7,
+        "header": "Issue Date",
+        "src": "issue_date",
+        "width": 25,
+        "fmt": FORMAT_DATE_UNLOCKED,
+        "cell_type": "date",
+        "error_formula": lambda row, col: (
+            f'IF(OR(NOT(ISNUMBER({col}{row})), {col}{row}=""), "Missing or Invalid Issue Date", "")'
+        ),
+        "validation": {
+            "validate": "date",
+            "criteria": "greater than or equal to",
+            "value": "1900-01-01",
+            "show_error": True,
+            "error_type": "stop",
+            "error_title": "Invalid Date",
+            "error_message": "Issue Date must be a valid date.",
+        },
+    },
+    # col 8  I — Amount
+    "amount": {
+        "col_idx": 8,
+        "header": "Amount",
+        "src": "amount",
+        "width": 25,
+        "fmt": FORMAT_UNLOCKED_NORMAL,
+        "cell_type": "normal",
+        "error_formula": lambda row, col: (
+            f'IF(OR({col}{row}="", NOT(ISNUMBER({col}{row}))), "Missing Amount", ""), '
+            f'IF(AND(ISNUMBER({col}{row}), {col}{row}>2147483647), "Amount exceeds limit", "")'
+        ),
+        "validation": {
+            "validate": "custom",
+            "value": "=AND(ISNUMBER({COL}2),{COL}2>=0,{COL}2<=2147483647)",
+            "show_error": True,
+            "error_type": "stop",
+            "error_title": "Invalid Amount",
+            "error_message": "Amount must be a whole number between 0 and 2,147,483,647.",
+        },
+    },
+    # col 9  J — Applicant City, State, Zip
+    "applicant_city_state_zip": {
+        "col_idx": 9,
+        "header": "Applicant City, State, Zip",
+        "src": "applicant_city_state_zip",
+        "width": 25,
+        "fmt": FORMAT_UNLOCKED_NORMAL,
+        "cell_type": "normal",
+    },
+    # col 10  K — Applicant
+    "applicant": {
+        "col_idx": 10,
+        "header": "Applicant",
+        "src": "applicant",
+        "width": 25,
+        "fmt": FORMAT_UNLOCKED_NORMAL,
+        "cell_type": "normal",
+        "error_formula": lambda row, col: (
+            f'IF(LEN(TRIM({col}{row}))=0, "Missing Applicant", ""), '
+            f'IF(LEN({col}{row})>50, "Applicant Name > 50 characters", "")'
+        ),
+        "validation": {
+            "validate": "text length",
+            "criteria": "between",
+            "minimum": 1,
+            "maximum": 50,
+            "show_error": True,
+            "error_type": "stop",
+            "error_title": "Invalid Applicant",
+            "error_message": "Applicant must be between 1 and 50 characters.",
+        },
+    },
+    # col 11  L — Matched Keywords
+    "matched_keywords": {
+        "col_idx": 11,
+        "header": "Matched Keywords",
+        "src": "matched_keywords",
+        "width": 25,
+        "fmt": FORMAT_LOCKED_NORMAL,
+        "cell_type": "normal",
+    },
+    # col 12  M — Work Description
+    "work_description": {
+        "col_idx": 12,
+        "header": "Work Description",
+        "src": "work_description",
+        "width": 50,
+        "fmt": FORMAT_UNLOCKED_NORMAL,
+        "cell_type": "normal",
+        "error_formula": lambda row, col: (
+            f'IF(LEN(TRIM({col}{row}))=0, "Missing Work Description", ""), '
+            f'IF(LEN({col}{row})>2000, "Work Description > 2000 characters", "")'
+        ),
+        "validation": {
+            "validate": "text length",
+            "criteria": "between",
+            "minimum": 1,
+            "maximum": 2000,
+            "show_error": True,
+            "error_type": "stop",
+            "error_title": "Invalid Work Description",
+            "error_message": "Work Description must be between 1 and 2000 characters.",
+        },
+    },
+    # col 13  N — Errors are Resolved
+    "errors_resolved": {
+        "col_idx": 13,
+        "header": "Errors are Resolved",
+        "src": None,
+        "width": 25,
+        "fmt": FORMAT_CHECKBOX,
+        "cell_type": "checkbox",
+        "validation": {
+            "validate": "custom",
+            "value": '=${ERRORS_COL}2=""',
+            "show_error": True,
+            "error_type": "stop",
+            "error_title": "Errors not resolved",
+            "error_message": "This row still has errors in column B. Fix them before marking resolved.",
+        },
+    },
+    # col 14  O — Reviewer Name
+    "reviewer_name": {
+        "col_idx": 14,
+        "header": "Reviewer Name",
+        "src": None,
+        "width": 25,
+        "fmt": FORMAT_UNLOCKED_NORMAL,
+        "cell_type": "normal",
+    },
+    # col 15  P — Reviewer Notes
+    "reviewer_notes": {
+        "col_idx": 15,
+        "header": "Reviewer Notes",
+        "src": None,
+        "width": 25,
+        "fmt": FORMAT_UNLOCKED_NORMAL,
+        "cell_type": "normal",
+    },
+}
+
+# Validate that col_idx values form a contiguous sequence starting at 0
+# with no duplicates. This catches mistakes like skipped or repeated indices
+# when columns are added or reordered.
+assert sorted(cd["col_idx"] for cd in PERMIT_COLUMNS.values()) == list(
+    range(len(PERMIT_COLUMNS))
+), (
+    "PERMIT_COLUMNS col_idx values must be unique and form a contiguous sequence starting at 0"
+)
+
+# Derived ordered sequence of column definitions, sorted by col_idx.
+# Use this for any iteration that depends on column order.
+PERMIT_COLUMNS_BY_IDX = sorted(
+    PERMIT_COLUMNS.values(), key=lambda cd: cd["col_idx"]
+)
 
 
 def parse_args() -> tuple[str, str, bool]:
@@ -474,330 +780,27 @@ def gen_file_base_name(start_date, end_date):
 
 
 def _col_letter(col_name: str) -> str:
-    """Return the Excel column letter for a named column in PERMITS_COLUMNS."""
+    """Return the Excel column letter for a named column in PERMIT_COLUMNS."""
     return xlsxwriter.utility.xl_col_to_name(
-        PERMITS_COLUMNS[col_name]["col_idx"]
+        PERMIT_COLUMNS[col_name]["col_idx"]
     )
 
 
 def _build_textjoin_errors_formula(row: int) -> str:
     """Return the TEXTJOIN formula for the Errors column at a given row
-    to catch problems that will block IasWorld upload.
+    to catch problems that will block IasWorld upload. Individual error
+    clauses are defined as `error_formula` lambdas on each column in
+    PERMIT_COLUMNS, keeping validation logic co-located with the column
+    it describes.
     """
-    pin = _col_letter("pin")
-    addr = _col_letter("applicant_street_address")
-    permit_no = _col_letter("local_permit_no")
-    issue_date = _col_letter("issue_date")
-    amount = _col_letter("amount")
-    applicant = _col_letter("applicant")
-    work_desc = _col_letter("work_description")
-
-    return (
-        f'=_xlfn.TEXTJOIN(", ", TRUE, '
-        f'IF(LEN(TRIM({pin}{row}))=0, "Missing PIN14", ""), '
-        f'IF(COUNTIF(\'Universe of Valid PINs\'!A:A, {pin}{row}) > 0, "", "Provide Valid Pin"), '
-        f'IF(LEN(TRIM({pin}{row}))<>14, "PIN is not 14 digits", ""), '
-        f'IF(LEN({applicant}{row})>50, "Applicant Name > 50 characters", ""), '
-        f'IF(LEN({addr}{row})>40, "Address > 40 characters", ""), '
-        f'IF(LEN({work_desc}{row})>2000, "Work Description > 2000 characters", ""), '
-        f'IF(AND(ISNUMBER({amount}{row}), {amount}{row}>2147483647), "Amount exceeds limit", ""), '
-        f'IF(OR(NOT(ISNUMBER({issue_date}{row})), {issue_date}{row}=""), "Missing or Invalid Issue Date", ""), '
-        f'IF(OR({amount}{row}="", NOT(ISNUMBER({amount}{row}))), "Missing Amount", ""), '
-        f'IF(LEN(TRIM({applicant}{row}))=0, "Missing Applicant", ""), '
-        f'IF(LEN(TRIM({addr}{row}))=0, "Missing Applicant Street Address", ""), '
-        f'IF(LEN(TRIM({permit_no}{row}))=0, "Missing Permit Number", ""), '
-        f'IF(LEN(TRIM({work_desc}{row}))=0, "Missing Work Description", "")'
-        f")"
+    clauses = ", ".join(
+        col_def["error_formula"](
+            row, xlsxwriter.utility.xl_col_to_name(col_def["col_idx"])
+        )
+        for col_def in PERMIT_COLUMNS_BY_IDX
+        if col_def.get("error_formula")
     )
-
-
-# ---------------------------------------------------------------------------
-# CellFormat
-#
-# Each member's value is its string key. Enumerate the characteristics that
-# define each cell to it's name which will be used in the PERMITS_COLUMN
-# section
-# ---------------------------------------------------------------------------
-class CellFormat(Enum):
-    BOLD = "bold"
-    LOCKED_NORMAL = "locked_normal"
-    HYPERLINK_FMT = "hyperlink_fmt"
-    UNLOCKED_NORMAL = "unlocked_normal"
-    UNLOCKED_WRAP = "unlocked_wrap"
-    CHECKBOX = "checkbox"
-    PIN_UNLOCKED_FMT = "pin_unlocked_fmt"
-    DATE_UNLOCKED_FMT = "date_unlocked_fmt"
-    HYPERLINK_UNLOCKED_FMT = "hyperlink_unlocked_fmt"
-
-
-# Shared property blocks
-_base = {
-    "font_name": "Arial",
-    "locked": True,
-    "align": "left",
-    "text_wrap": False,
-    "num_format": "0.##",
-}
-_unlocked = {**_base, "locked": False}
-_hyperlink = {"font_color": "blue", "underline": True}
-_pin_num = {"num_format": "@"}
-_date_num = {"num_format": "mm/dd/yyyy"}
-
-# Add the special characteristics to each format which makes them unique
-FORMAT_SPECS: dict[CellFormat, dict] = {
-    CellFormat.BOLD: {**_base, "bold": True},
-    CellFormat.LOCKED_NORMAL: _base,
-    CellFormat.HYPERLINK_FMT: {**_base, **_hyperlink},
-    CellFormat.UNLOCKED_NORMAL: _unlocked,
-    CellFormat.UNLOCKED_WRAP: {**_unlocked, "text_wrap": True},
-    CellFormat.CHECKBOX: {**_unlocked, "align": "center"},
-    CellFormat.PIN_UNLOCKED_FMT: {**_unlocked, **_pin_num},
-    CellFormat.DATE_UNLOCKED_FMT: {**_unlocked, **_date_num},
-    CellFormat.HYPERLINK_UNLOCKED_FMT: {**_unlocked, **_hyperlink},
-}
-
-
-# ---------------------------------------------------------------------------
-# PERMITS_COLUMNS
-#
-# Key for every column on the "Permits" sheet.
-# ---------------------------------------------------------------------------
-PERMITS_COLUMNS = {
-    # col 0  A — Row Number
-    "row_number": {
-        "col_idx": 0,
-        "header": "Row Number",
-        "src": None,
-        "width": 12,
-        "fmt": CellFormat.LOCKED_NORMAL,
-        "cell_type": "row_number",
-    },
-    # col 1  B — Errors
-    "errors": {
-        "col_idx": 1,
-        "header": "Errors",
-        "src": None,
-        "width": 67,
-        "fmt": CellFormat.LOCKED_NORMAL,
-        "cell_type": "formula",
-    },
-    # col 2  C — Suggested PINs
-    "suggested_pins": {
-        "col_idx": 2,
-        "header": "Suggested PINs",
-        "src": "suggested_pins",
-        "width": 50,
-        "fmt": CellFormat.UNLOCKED_WRAP,
-        "cell_type": "suggested_pins",
-        "validation": {
-            "validate": "custom",
-            # We want an error validation to trigger any time a change is implemented.
-            # But we cannot lock the column because it makes copying and pasting between
-            # columns difficult.
-            "value": '=C2="Impossible Match"',
-            "error_type": "warning",
-            "show_error": True,
-            "error_title": "Suggested PINs",
-            "error_message": "Make sure that changes to PIN values are in PIN column.",
-        },
-    },
-    # col 3  D — PIN
-    "pin": {
-        "col_idx": 3,
-        "header": "PIN",
-        "src": "pin",
-        "width": 25,
-        "fmt": CellFormat.PIN_UNLOCKED_FMT,
-        "cell_type": "pin",
-        "validation": {
-            "validate": "custom",
-            "value": "=AND(LEN(TRIM(D2))=14,COUNTIF('Universe of Valid PINs'!$A:$A,D2)>0)",
-            "ignore_blank": False,
-            "show_error": True,
-            "error_type": "stop",
-            "error_title": "Invalid PIN",
-            "error_message": "PIN must be 14 digits and exist in the Universe of Valid PINs.",
-        },
-    },
-    # col 4  E — Suggested Property Address
-    "suggested_property_address": {
-        "col_idx": 4,
-        "header": "Suggested Property Address",
-        "src": "property_address",
-        "width": 25,
-        "fmt": CellFormat.HYPERLINK_FMT,
-        "cell_type": "hyperlink_locked",
-    },
-    # col 5  F — Applicant Street Address
-    "applicant_street_address": {
-        "col_idx": 5,
-        "header": "Applicant Street Address",
-        "src": "applicant_street_address",
-        "width": 25,
-        "fmt": CellFormat.UNLOCKED_NORMAL,
-        "cell_type": "normal",
-        "validation": {
-            "validate": "text length",
-            "criteria": "between",
-            "minimum": 1,
-            "maximum": 40,
-            "show_error": True,
-            "error_type": "stop",
-            "error_title": "Invalid Address",
-            "error_message": "Address must be between 1 and 40 characters.",
-        },
-    },
-    # col 6  G — Local Permit No.
-    "local_permit_no": {
-        "col_idx": 6,
-        "header": "Local Permit No.",
-        "src": "permit_no",
-        "width": 25,
-        "fmt": CellFormat.LOCKED_NORMAL,
-        "cell_type": "normal",
-    },
-    # col 7  H — Issue Date
-    "issue_date": {
-        "col_idx": 7,
-        "header": "Issue Date",
-        "src": "issue_date",
-        "width": 25,
-        "fmt": CellFormat.DATE_UNLOCKED_FMT,
-        "cell_type": "date",
-        "validation": {
-            "validate": "date",
-            "criteria": "greater than or equal to",
-            "value": "1900-01-01",
-            "show_error": True,
-            "error_type": "stop",
-            "error_title": "Invalid Date",
-            "error_message": "Issue Date must be a valid date.",
-        },
-    },
-    # col 8  I — Amount
-    "amount": {
-        "col_idx": 8,
-        "header": "Amount",
-        "src": "amount",
-        "width": 25,
-        "fmt": CellFormat.UNLOCKED_NORMAL,
-        "cell_type": "normal",
-        "validation": {
-            "validate": "custom",
-            "value": "=AND(ISNUMBER(I2),I2>=0,I2<=2147483647)",
-            "show_error": True,
-            "error_type": "stop",
-            "error_title": "Invalid Amount",
-            "error_message": "Amount must be a whole number between 0 and 2,147,483,647.",
-        },
-    },
-    # col 9  J — Applicant City, State, Zip
-    "applicant_city_state_zip": {
-        "col_idx": 9,
-        "header": "Applicant City, State, Zip",
-        "src": "applicant_city_state_zip",
-        "width": 25,
-        "fmt": CellFormat.UNLOCKED_NORMAL,
-        "cell_type": "normal",
-    },
-    # col 10  K — Applicant
-    "applicant": {
-        "col_idx": 10,
-        "header": "Applicant",
-        "src": "applicant",
-        "width": 25,
-        "fmt": CellFormat.UNLOCKED_NORMAL,
-        "cell_type": "normal",
-        "validation": {
-            "validate": "text length",
-            "criteria": "between",
-            "minimum": 1,
-            "maximum": 50,
-            "show_error": True,
-            "error_type": "stop",
-            "error_title": "Invalid Applicant",
-            "error_message": "Applicant must be between 1 and 50 characters.",
-        },
-    },
-    # col 11  L — Matched Keywords
-    "matched_keywords": {
-        "col_idx": 11,
-        "header": "Matched Keywords",
-        "src": "matched_keywords",
-        "width": 25,
-        "fmt": CellFormat.LOCKED_NORMAL,
-        "cell_type": "normal",
-    },
-    # col 12  M — Work Description
-    "work_description": {
-        "col_idx": 12,
-        "header": "Work Description",
-        "src": "work_description",
-        "width": 50,
-        "fmt": CellFormat.UNLOCKED_NORMAL,
-        "cell_type": "normal",
-        "validation": {
-            "validate": "text length",
-            "criteria": "between",
-            "minimum": 1,
-            "maximum": 2000,
-            "show_error": True,
-            "error_type": "stop",
-            "error_title": "Invalid Work Description",
-            "error_message": "Work Description must be between 1 and 2000 characters.",
-        },
-    },
-    # col 13  N — Errors are Resolved
-    "errors_resolved": {
-        "col_idx": 13,
-        "header": "Errors are Resolved",
-        "src": None,
-        "width": 25,
-        "fmt": CellFormat.CHECKBOX,
-        "cell_type": "checkbox",
-        "validation": {
-            "validate": "custom",
-            "value": '=$B2=""',
-            "show_error": True,
-            "error_type": "stop",
-            "error_title": "Errors not resolved",
-            "error_message": "This row still has errors in column B. Fix them before marking resolved.",
-        },
-    },
-    # col 14  O — Reviewer Name
-    "reviewer_name": {
-        "col_idx": 14,
-        "header": "Reviewer Name",
-        "src": None,
-        "width": 25,
-        "fmt": CellFormat.UNLOCKED_NORMAL,
-        "cell_type": "normal",
-    },
-    # col 15  P — Reviewer Notes
-    "reviewer_notes": {
-        "col_idx": 15,
-        "header": "Reviewer Notes",
-        "src": None,
-        "width": 25,
-        "fmt": CellFormat.UNLOCKED_NORMAL,
-        "cell_type": "normal",
-    },
-}
-
-# Validate that col_idx values form a contiguous sequence starting at 0
-# with no duplicates. This catches mistakes like skipped or repeated indices
-# when columns are added or reordered.
-assert sorted(cd["col_idx"] for cd in PERMITS_COLUMNS.values()) == list(
-    range(len(PERMITS_COLUMNS))
-), (
-    "PERMITS_COLUMNS col_idx values must be unique and form a contiguous sequence starting at 0"
-)
-
-# Derived ordered sequence of column definitions, sorted by col_idx.
-# Use this for any iteration that depends on column order.
-PERMITS_COLUMNS_BY_IDX = sorted(
-    PERMITS_COLUMNS.values(), key=lambda cd: cd["col_idx"]
-)
+    return f'=_xlfn.TEXTJOIN(", ", TRUE, {clauses})'
 
 
 def save_xlsx_files(df, file_base_name, chicago_pin_universe):
@@ -813,38 +816,34 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
     file_name = os.path.join(output_folder, file_base_name + "permits.xlsx")
     workbook = xlsxwriter.Workbook(file_name)
 
-    # ------------------------------------------------------------------ #
-    #  "Permits" sheet                                                   #
+    #  "Permits" sheet
     # ------------------------------------------------------------------ #
 
     n_data_rows = len(df_all)
 
-    # Build xlsxwriter format objects from the module-level FORMAT_SPECS dict.
-    # Keys are CellFormat enum members, so any invalid fmt value in
-    # PERMITS_COLUMNS should raise an error.
+    # Build xlsxwriter format objects from FORMAT_SPECS, keyed by format name.
     formats = {
-        member: workbook.add_format(spec)
-        for member, spec in FORMAT_SPECS.items()
+        name: workbook.add_format(spec) for name, spec in FORMAT_SPECS.items()
     }
 
     ws = workbook.add_worksheet("Permits")
     ws.freeze_panes(1, 0)
 
     # --- Apply column widths and default formats ---
-    for col_def in PERMITS_COLUMNS_BY_IDX:
+    for col_def in PERMIT_COLUMNS_BY_IDX:
         ci = col_def["col_idx"]
         ws.set_column(ci, ci, col_def["width"], formats[col_def["fmt"]])
 
     # --- Header row ---
-    for col_def in PERMITS_COLUMNS_BY_IDX:
+    for col_def in PERMIT_COLUMNS_BY_IDX:
         ci = col_def["col_idx"]
-        ws.write(0, ci, col_def["header"], formats[CellFormat.BOLD])
+        ws.write(0, ci, col_def["header"], formats[FORMAT_BOLD])
 
     # --- Data rows ---
     for row_idx, (_, row_data) in enumerate(df_all.iterrows(), start=1):
         xl_row = row_idx
 
-        for col_def in PERMITS_COLUMNS_BY_IDX:
+        for col_def in PERMIT_COLUMNS_BY_IDX:
             ci = col_def["col_idx"]
             cell_type = col_def["cell_type"]
             fmt = formats[col_def["fmt"]]
@@ -864,9 +863,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                 continue
 
             if cell_type == "checkbox":
-                ws.insert_checkbox(
-                    xl_row, ci, False, formats[CellFormat.CHECKBOX]
-                )
+                ws.insert_checkbox(xl_row, ci, False, formats[FORMAT_CHECKBOX])
                 continue
 
             # --- Source-value cells ---
@@ -886,20 +883,17 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
             if isinstance(val, str) and val.startswith("=HYPERLINK("):
                 if cell_type == "suggested_pins":
                     ws.write_formula(
-                        xl_row,
-                        ci,
-                        val,
-                        formats[CellFormat.HYPERLINK_UNLOCKED_FMT],
+                        xl_row, ci, val, formats[FORMAT_HYPERLINK_UNLOCKED]
                     )
                 else:
                     ws.write_formula(
-                        xl_row, ci, val, formats[CellFormat.HYPERLINK_FMT]
+                        xl_row, ci, val, formats[FORMAT_HYPERLINK]
                     )
                 continue
 
             # Suggested PINs non-hyperlink (plain text / "NO PIN FOUND")
             if cell_type == "suggested_pins":
-                ws.write(xl_row, ci, val, formats[CellFormat.UNLOCKED_WRAP])
+                ws.write(xl_row, ci, val, formats[FORMAT_UNLOCKED_WRAP])
                 continue
 
             # PIN: zero-pad to 14 digits
@@ -928,7 +922,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
     if n_data_rows > 0:
         errors_col = _col_letter("errors")
         resolved_col = _col_letter("errors_resolved")
-        last_col = max(cd["col_idx"] for cd in PERMITS_COLUMNS.values())
+        last_col = max(cd["col_idx"] for cd in PERMIT_COLUMNS.values())
         for criteria, color in [
             (
                 f'=AND(${errors_col}2="",${resolved_col}2=FALSE)',
@@ -954,14 +948,24 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
 
     # --- Data validation
     if n_data_rows > 0:
-        for col_def in PERMITS_COLUMNS_BY_IDX:
+        errors_col = _col_letter("errors")
+        for col_def in PERMIT_COLUMNS_BY_IDX:
             v = col_def.get("validation")
             if v is None:
                 continue
-            v = v.copy()
+            v = copy.deepcopy(v)
             show_error = v.pop("show_error", True)
             error_type = v.pop("error_type", "stop")
             ci = col_def["col_idx"]
+            # Resolve column-letter placeholders in formula-based validation
+            # values so that PERMIT_COLUMNS definitions stay free of hardcoded
+            # letters and automatically track any col_idx changes.
+            if "value" in v and isinstance(v["value"], str):
+                col_letter = xlsxwriter.utility.xl_col_to_name(ci)
+                v["value"] = v["value"].format(
+                    COL=col_letter,
+                    ERRORS_COL=errors_col,
+                )
             ws.data_validation(
                 1,
                 ci,
@@ -972,7 +976,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
 
     # --- Data autofilter ---
     if n_data_rows > 0:
-        last_col = max(cd["col_idx"] for cd in PERMITS_COLUMNS.values())
+        last_col = max(cd["col_idx"] for cd in PERMIT_COLUMNS.values())
         ws.autofilter(0, 0, n_data_rows, last_col)
 
     # Protect sheet
@@ -988,8 +992,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
         },
     )
 
-    # ------------------------------------------------------------------ #
-    #  "Universe of Valid PINs" sheet                                      #
+    #  "Universe of Valid PINs" sheet
     # ------------------------------------------------------------------ #
     pin_str_fmt = {
         "font_name": "Arial",
