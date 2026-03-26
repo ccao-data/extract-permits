@@ -118,6 +118,8 @@ PERMIT_COLUMNS = {
         "col_idx": 3,
         "header": "PIN",
         "src": "pin",
+        "city_name": "pin_final",
+        "iasworld_name": "parid",
         "width": 25,
         "fmt": FORMAT_PIN_UNLOCKED,
         "cell_type": "pin",
@@ -150,6 +152,8 @@ PERMIT_COLUMNS = {
         "col_idx": 5,
         "header": "Applicant Street Address",
         "src": "applicant_street_address",
+        "city_name": "Address",
+        "iasworld_name": "note2",
         "width": 25,
         "fmt": FORMAT_UNLOCKED_NORMAL,
         "cell_type": "normal",
@@ -173,6 +177,8 @@ PERMIT_COLUMNS = {
         "col_idx": 6,
         "header": "Local Permit No.",
         "src": "permit_no",
+        "city_name": "permit_",
+        "iasworld_name": "user28",
         "width": 25,
         "fmt": FORMAT_LOCKED_NORMAL,
         "cell_type": "normal",
@@ -185,6 +191,8 @@ PERMIT_COLUMNS = {
         "col_idx": 7,
         "header": "Issue Date",
         "src": "issue_date",
+        "city_name": "issue_date",
+        "iasworld_name": "permdt",
         "width": 25,
         "fmt": FORMAT_DATE_UNLOCKED,
         "cell_type": "date",
@@ -206,6 +214,8 @@ PERMIT_COLUMNS = {
         "col_idx": 8,
         "header": "Amount",
         "src": "amount",
+        "city_name": "reported_cost",
+        "iasworld_name": "amount",
         "width": 25,
         "fmt": FORMAT_UNLOCKED_NORMAL,
         "cell_type": "normal",
@@ -227,6 +237,7 @@ PERMIT_COLUMNS = {
         "col_idx": 9,
         "header": "Applicant City, State, Zip",
         "src": "applicant_city_state_zip",
+        "city_name": "city_state",
         "width": 25,
         "fmt": FORMAT_UNLOCKED_NORMAL,
         "cell_type": "normal",
@@ -236,6 +247,7 @@ PERMIT_COLUMNS = {
         "col_idx": 10,
         "header": "Applicant",
         "src": "applicant",
+        "city_name": "contact_1_name",
         "width": 25,
         "fmt": FORMAT_UNLOCKED_NORMAL,
         "cell_type": "normal",
@@ -268,6 +280,8 @@ PERMIT_COLUMNS = {
         "col_idx": 12,
         "header": "Work Description",
         "src": "work_description",
+        "city_name": "work_description",
+        "iasworld_name": "user43",
         "width": 50,
         "fmt": FORMAT_UNLOCKED_NORMAL,
         "cell_type": "normal",
@@ -527,15 +541,11 @@ def organize_columns(df):
         df["issue_date"], format="%Y-%m-%dT%H:%M:%S.%f", errors="coerce"
     ).dt.strftime("%-m/%-d/%Y")
 
+    # Derived from PERMIT_COLUMNS: city_name -> src
     column_renaming_dict = {
-        "pin_final": "pin",
-        "permit_": "permit_no",
-        "issue_date": "issue_date",
-        "reported_cost": "amount",
-        "Address": "applicant_street_address",
-        "city_state": "applicant_city_state_zip",
-        "contact_1_name": "applicant",
-        "work_description": "work_description",
+        col["city_name"]: col["src"]
+        for col in PERMIT_COLUMNS.values()
+        if col.get("city_name") and col.get("src")
     }
 
     data_relevant = df[
@@ -544,14 +554,9 @@ def organize_columns(df):
     data_renamed = data_relevant.rename(columns=column_renaming_dict)
 
     column_order = [
-        "pin",
-        "permit_no",
-        "issue_date",
-        "amount",
-        "applicant_street_address",
-        "applicant_city_state_zip",
-        "applicant",
-        "work_description",
+        col["src"]
+        for col in PERMIT_COLUMNS_BY_IDX
+        if col.get("city_name") and col.get("src")
     ]
 
     data_all_cols = data_renamed.assign(
@@ -726,13 +731,11 @@ def deduplicate_permits(cursor, df, start_date, end_date):
         {"start_date": start_date, "end_date": end_date},
     )
     existing_permits = as_pandas(cursor)
+    # Derived from PERMIT_COLUMNS: src -> iasworld_name
     workbook_to_iasworld_col_map = {
-        "pin": "parid",
-        "issue_date": "permdt",
-        "amount": "amount",
-        "applicant_street_address": "note2",
-        "permit_no": "user28",
-        "work_description": "user43",
+        col["src"]: col["iasworld_name"]
+        for col in PERMIT_COLUMNS.values()
+        if col.get("src") and col.get("iasworld_name")
     }
     new_permits = df.copy()
     for workbook_key, iasworld_key in workbook_to_iasworld_col_map.items():
