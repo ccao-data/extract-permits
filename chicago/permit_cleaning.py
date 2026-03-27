@@ -649,6 +649,9 @@ keywords = [
 
 # Join addresses and format columns
 def add_address_link_and_suggested_pins(df, chicago_pin_universe):
+    # Collapse multiple pins per address into a single comma-separated string.
+    # Rename to suggested_pins before the merge to avoid colliding with the
+    # existing pin column already in df.
     pin_map = (
         chicago_pin_universe.groupby(["prop_address_full"])["pin"]
         .apply(lambda pins: ", ".join(pins.astype(str).unique()))
@@ -791,10 +794,7 @@ def _col_letter(col_name: str) -> str:
 
 def _build_textjoin_errors_formula(row: int) -> str:
     """Return the TEXTJOIN formula for the Errors column at a given row
-    to catch problems that will block IasWorld upload. Individual error
-    clauses are defined as `error_formula` lambdas on each column in
-    PERMIT_COLUMNS, keeping validation logic co-located with the column
-    it describes.
+    to catch problems that will block IasWorld upload.
     """
     clauses = ", ".join(
         col_def["error_formula"](
@@ -960,9 +960,8 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
             show_error = v.pop("show_error", True)
             error_type = v.pop("error_type", "stop")
             ci = col_def["col_idx"]
-            # Resolve column-letter placeholders in formula-based validation
-            # values so that PERMIT_COLUMNS definitions stay free of hardcoded
-            # letters and automatically track any col_idx changes.
+            # Fill in {COL} and {ERRORS_COL} in validation formulas using
+            # the correct Excel column letters for this column.
             if "value" in v and isinstance(v["value"], str):
                 col_letter = xlsxwriter.utility.xl_col_to_name(ci)
                 v["value"] = v["value"].format(
