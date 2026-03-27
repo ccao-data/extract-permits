@@ -45,29 +45,16 @@ _hyperlink = {"font_color": "blue", "underline": True}
 _pin_num = {"num_format": "@"}
 _date_num = {"num_format": "mm/dd/yyyy"}
 
-# Cell format constants — keyed by string name for hashable lookups
-FORMAT_BOLD = "FORMAT_BOLD"
-FORMAT_LOCKED_NORMAL = "FORMAT_LOCKED_NORMAL"
-FORMAT_HYPERLINK = "FORMAT_HYPERLINK"
-FORMAT_UNLOCKED_NORMAL = "FORMAT_UNLOCKED_NORMAL"
-FORMAT_UNLOCKED_WRAP = "FORMAT_UNLOCKED_WRAP"
-FORMAT_CHECKBOX = "FORMAT_CHECKBOX"
-FORMAT_PIN_UNLOCKED = "FORMAT_PIN_UNLOCKED"
-FORMAT_DATE_UNLOCKED = "FORMAT_DATE_UNLOCKED"
-FORMAT_HYPERLINK_UNLOCKED = "FORMAT_HYPERLINK_UNLOCKED"
-
-# Mapping from format name → xlsxwriter property dict
-FORMAT_SPECS = {
-    FORMAT_BOLD: {**_base, "bold": True},
-    FORMAT_LOCKED_NORMAL: _base,
-    FORMAT_HYPERLINK: {**_base, **_hyperlink},
-    FORMAT_UNLOCKED_NORMAL: _unlocked,
-    FORMAT_UNLOCKED_WRAP: {**_unlocked, "text_wrap": True},
-    FORMAT_CHECKBOX: {**_unlocked, "align": "center"},
-    FORMAT_PIN_UNLOCKED: {**_unlocked, **_pin_num},
-    FORMAT_DATE_UNLOCKED: {**_unlocked, **_date_num},
-    FORMAT_HYPERLINK_UNLOCKED: {**_unlocked, **_hyperlink},
-}
+# Cell format constants
+FORMAT_BOLD = {**_base, "bold": True}
+FORMAT_LOCKED_NORMAL = _base
+FORMAT_HYPERLINK = {**_base, **_hyperlink}
+FORMAT_UNLOCKED_NORMAL = _unlocked
+FORMAT_UNLOCKED_WRAP = {**_unlocked, "text_wrap": True}
+FORMAT_CHECKBOX = {**_unlocked, "align": "center"}
+FORMAT_PIN_UNLOCKED = {**_unlocked, **_pin_num}
+FORMAT_DATE_UNLOCKED = {**_unlocked, **_date_num}
+FORMAT_HYPERLINK_UNLOCKED = {**_unlocked, **_hyperlink}
 
 
 # PERMIT_COLUMNS
