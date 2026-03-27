@@ -885,7 +885,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
     # --- Header row ---
     for col_def in PERMIT_COLUMNS_BY_IDX:
         ci = col_def["col_idx"]
-        ws.write(0, ci, col_def["header"], formats[FORMAT_BOLD])
+        ws.write(0, ci, col_def["header"], FORMAT_BOLD)
 
     # --- Data rows ---
     for row_idx, (_, row_data) in enumerate(df_all.iterrows(), start=1):
