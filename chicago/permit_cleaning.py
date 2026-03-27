@@ -73,7 +73,7 @@ FORMAT_HYPERLINK_UNLOCKED = {**_unlocked, **_hyperlink}
 #
 #   src (str, optional)
 #       The DataFrame column name to read the cell value from.
-#       None or missing means the column has no source data (e.g. 
+#       None or missing means the column has no source data (e.g.
 #       computed columns like "Row Number" and "Errors", or blank
 #       analyst-editable columns like "Reviewer Name").
 #
@@ -864,15 +864,20 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
     file_name = os.path.join(output_folder, file_base_name + "permits.xlsx")
     workbook = xlsxwriter.Workbook(file_name)
 
+    # Define the xlsxwriter format objects by the id of the
+    # format-spec dict.
+    _fmt_cache: dict[int, object] = {}
+
+    def get_fmt(spec: dict):
+        key = id(spec)
+        if key not in _fmt_cache:
+            _fmt_cache[key] = workbook.add_format(spec)
+        return _fmt_cache[key]
+
     #  "Permits" sheet
     # ------------------------------------------------------------------ #
 
     n_data_rows = len(df_all)
-
-    # Build xlsxwriter format objects from FORMAT_SPECS, keyed by format name.
-    formats = {
-        name: workbook.add_format(spec) for name, spec in FORMAT_SPECS.items()
-    }
 
     ws = workbook.add_worksheet("Permits")
     ws.freeze_panes(1, 0)
@@ -880,12 +885,12 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
     # --- Apply column widths and default formats ---
     for col_def in PERMIT_COLUMNS_BY_IDX:
         ci = col_def["col_idx"]
-        ws.set_column(ci, ci, col_def["width"], formats[col_def["fmt"]])
+        ws.set_column(ci, ci, col_def["width"], get_fmt(col_def["fmt"]))
 
     # --- Header row ---
     for col_def in PERMIT_COLUMNS_BY_IDX:
         ci = col_def["col_idx"]
-        ws.write(0, ci, col_def["header"], FORMAT_BOLD)
+        ws.write(0, ci, col_def["header"], get_fmt(FORMAT_BOLD))
 
     # --- Data rows ---
     for row_idx, (_, row_data) in enumerate(df_all.iterrows(), start=1):
@@ -894,7 +899,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
         for col_def in PERMIT_COLUMNS_BY_IDX:
             ci = col_def["col_idx"]
             cell_type = col_def["cell_type"]
-            fmt = formats[col_def["fmt"]]
+            fmt = get_fmt(col_def["fmt"])
 
             # --- Computed / special cell types ---
             if cell_type == "row_number":
@@ -911,7 +916,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                 continue
 
             if cell_type == "checkbox":
-                ws.insert_checkbox(xl_row, ci, False, formats[FORMAT_CHECKBOX])
+                ws.insert_checkbox(xl_row, ci, False, get_fmt(FORMAT_CHECKBOX))
                 continue
 
             # --- Source-value cells ---
@@ -931,17 +936,17 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
             if isinstance(val, str) and val.startswith("=HYPERLINK("):
                 if cell_type == "suggested_pins":
                     ws.write_formula(
-                        xl_row, ci, val, formats[FORMAT_HYPERLINK_UNLOCKED]
+                        xl_row, ci, val, get_fmt(FORMAT_HYPERLINK_UNLOCKED)
                     )
                 else:
                     ws.write_formula(
-                        xl_row, ci, val, formats[FORMAT_HYPERLINK]
+                        xl_row, ci, val, get_fmt(FORMAT_HYPERLINK)
                     )
                 continue
 
             # Suggested PINs non-hyperlink (plain text / "NO PIN FOUND")
             if cell_type == "suggested_pins":
-                ws.write(xl_row, ci, val, formats[FORMAT_UNLOCKED_WRAP])
+                ws.write(xl_row, ci, val, get_fmt(FORMAT_UNLOCKED_WRAP))
                 continue
 
             # PIN: zero-pad to 14 digits
@@ -994,7 +999,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                 },
             )
 
-        # --- Data validation
+        # --- Data validation ---
         errors_col = _col_letter("errors")
         for col_def in PERMIT_COLUMNS_BY_IDX:
             v = col_def.get("validation")
