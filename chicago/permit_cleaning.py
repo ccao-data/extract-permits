@@ -1021,8 +1021,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                 {"show_error": show_error, "error_type": error_type, **v},
             )
 
-    # --- Data autofilter ---
-    if n_data_rows > 0:
+        # --- Data autofilter ---
         last_col = max(cd["col_idx"] for cd in PERMIT_COLUMNS.values())
         ws.autofilter(0, 0, n_data_rows, last_col)
 
