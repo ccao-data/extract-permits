@@ -169,8 +169,8 @@ PERMIT_COLUMNS = {
         "fmt": FORMAT_PIN_UNLOCKED,
         "cell_type": "pin",
         "error_formula": lambda row, col: (
-            f'IF(LEN(TRIM({col}{row}))=0, "Missing PIN14", ""), '
-            f'IF(COUNTIF(\'Universe of Valid PINs\'!A:A, {col}{row}) > 0, "", "Provide Valid Pin"), '
+            f'IF(LEN(TRIM({col}{row}))=0, "Missing PIN", ""), '
+            f'IF(COUNTIF(\'Universe of Valid PINs\'!A:A, {col}{row}) > 0, "", "PIN is invalid"), '
             f'IF(LEN(TRIM({col}{row}))<>14, "PIN is not 14 digits", "")'
         ),
         "validation": {
