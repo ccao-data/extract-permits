@@ -73,6 +73,64 @@ FORMAT_SPECS = {
 # PERMIT_COLUMNS
 #
 # Key for every column on the "Permits" sheet.
+#
+# Each value is a dict with the following keys:
+#
+#   col_idx (int, required)
+#       Zero-based integer position of this column in the Excel sheet.
+#       Values must form a contiguous sequence starting at 0 with no gaps
+#       or duplicates (enforced by the assert below).
+#
+#   header (str, required)
+#       The human-readable column header written to row 0 of the sheet.
+#
+#   src (str, optional)
+#       The DataFrame column name to read the cell value from.
+#       None or missing means the column has no source data (e.g. 
+#       computed columns like "Row Number" and "Errors", or blank
+#       analyst-editable columns like "Reviewer Name").
+#
+#   width (int | float, required)
+#       The default column width in Excel character units.
+#
+#   fmt (str, required)
+#       A FORMAT_* constant (defined above) that selects the xlsxwriter
+#       cell format to apply to this column.
+#
+#   cell_type (str, required)
+#       Controls how each data cell is written. Recognised values:
+#         "normal"           — plain ws.write() call.
+#         "row_number"       — writes the 1-based row index.
+#         "formula"          — writes the TEXTJOIN error-check formula.
+#         "checkbox"         — inserts a checkbox (no data value).
+#         "pin"              — zero-pads value to 14 digits before writing.
+#         "date"             — parses value and writes as an Excel date serial.
+#         "suggested_pins"   — hyperlink formula if single 14-digit PIN,
+#                              plain text otherwise.
+#         "hyperlink_locked" — value is already an Excel HYPERLINK formula string.
+#
+#   city_name (str, optional)
+#       The column name as it appears in the raw Chicago Data Portal download.
+#       Used by organize_columns() to rename raw columns to their internal
+#       `src` names. Omit if the column has no corresponding source field.
+#
+#   iasworld_name (str, optional)
+#       The column name in the iasWorld/SmartFile schema. Used by
+#       deduplicate_permits() to map workbook columns to iasWorld columns
+#       for deduplication joins. Omit if the column is not uploaded to iasWorld.
+#
+#   error_formula (callable, optional)
+#       A lambda(row, col) -> str that returns one or more Excel IF() clauses
+#       (comma-separated) to include in the TEXTJOIN Errors formula for this
+#       column. Each clause should evaluate to an error message string or "".
+#       Omit if no per-cell validation is needed for this column.
+#
+#   validation (dict, optional)
+#       An xlsxwriter data_validation() options dict to apply to the column's
+#       data range. The special placeholders {COL} and {ERRORS_COL} in the
+#       "value" string are substituted at write time with the correct Excel
+#       column letters. Omit if no Excel data validation is needed.
+# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 PERMIT_COLUMNS = {
     # col 0  A — Row Number
