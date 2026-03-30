@@ -932,7 +932,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
             if val is None:
                 continue
 
-            # Hyperlink cells
+            # Hyperlink cells (single PIN)
             if isinstance(val, str) and val.startswith("=HYPERLINK("):
                 if cell_type == "suggested_pins":
                     ws.write_formula(
@@ -944,7 +944,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                     )
                 continue
 
-            # Suggested PINs non-hyperlink
+            # Suggested PINs non-hyperlink (multiple PINs)
             if cell_type == "suggested_pins":
                 ws.write(xl_row, ci, val, get_fmt(FORMAT_UNLOCKED_WRAP))
                 continue
