@@ -932,7 +932,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
             if val is None:
                 continue
 
-            # Hyperlink cells (value is an Excel HYPERLINK formula string)
+            # Hyperlink cells (single PIN)
             if isinstance(val, str) and val.startswith("=HYPERLINK("):
                 if cell_type == "suggested_pins":
                     ws.write_formula(
@@ -944,7 +944,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                     )
                 continue
 
-            # Suggested PINs non-hyperlink (plain text / "NO PIN FOUND")
+            # Suggested PINs non-hyperlink (multiple PINs)
             if cell_type == "suggested_pins":
                 ws.write(xl_row, ci, val, get_fmt(FORMAT_UNLOCKED_WRAP))
                 continue
@@ -971,7 +971,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
 
         ws.set_row(xl_row, None)  # auto height
 
-    # Conditional formatting to produce dynamic excel color changing
+    # Conditional formatting to produce excel colors which represent status of Permit/Pin.
     if n_data_rows > 0:
         errors_col = _col_letter("errors")
         resolved_col = _col_letter("errors_resolved")
@@ -999,7 +999,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                 },
             )
 
-        # --- Data validation ---
+        # --- Data validation
         errors_col = _col_letter("errors")
         for col_def in PERMIT_COLUMNS_BY_IDX:
             v = col_def.get("validation")
@@ -1010,7 +1010,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
             error_type = v.pop("error_type", "stop")
             ci = col_def["col_idx"]
             # Fill in {COL} and {ERRORS_COL} in validation formulas using
-            # the correct Excel column letters for this column.
+            # Excel column letters.
             if "value" in v and isinstance(v["value"], str):
                 col_letter = xlsxwriter.utility.xl_col_to_name(ci)
                 v["value"] = v["value"].format(
@@ -1025,7 +1025,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                 {"show_error": show_error, "error_type": error_type, **v},
             )
 
-        # --- Data autofilter ---
+        # --- Data autofilter
         last_col = max(cd["col_idx"] for cd in PERMIT_COLUMNS.values())
         ws.autofilter(0, 0, n_data_rows, last_col)
 
