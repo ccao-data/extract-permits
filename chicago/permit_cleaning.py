@@ -827,7 +827,7 @@ def deduplicate_permits(cursor, df, start_date, end_date):
 
 
 def gen_file_base_name(start_date, end_date):
-    return f"{start_date}_to_{end_date}_permits_"
+    return f"{start_date}_to_{end_date}_chicago_"
 
 
 def _col_letter(col_name: str) -> str:
