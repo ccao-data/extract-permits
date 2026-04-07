@@ -1,20 +1,21 @@
+# This script is now dated. It was used to review permits based on a different set of techniques.
+# It is now saved for reference sake.
 import argparse  # noqa: I001
 import os
 from datetime import datetime
 
 import openpyxl
 import pandas as pd
-from openpyxl.utils.datetime import from_excel
-from pyathena import connect
-
 from helper import (
     filled_columns,
     finalize_columns,
-    normalize_pin,
-    required_columns,
     get_pin_cache_filename,
+    normalize_pin,
     pull_existing_pins_from_athena,
+    required_columns,
 )
+from openpyxl.utils.datetime import from_excel
+from pyathena import connect
 
 conn = connect(
     s3_staging_dir=os.getenv(
