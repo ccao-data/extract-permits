@@ -361,7 +361,6 @@ PERMIT_COLUMNS = {
         "fmt": FORMAT_UNLOCKED_NORMAL,
         "cell_type": "normal",
     },
-    # col 14  O — Reviewer Notes
     "reviewer_notes": {
         "col_idx": 14,
         "header": "Reviewer Notes",
