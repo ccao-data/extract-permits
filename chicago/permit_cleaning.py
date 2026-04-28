@@ -278,7 +278,7 @@ PERMIT_COLUMNS = {
         "error_formula": lambda row, col: (
             f'IF(OR({col}{row}="", NOT(ISNUMBER({col}{row}))), "Missing Amount", ""), '
             f'IF(AND(ISNUMBER({col}{row}), {col}{row}<1), "Amount must be at least 1", ""), '
-            f'IF(AND(ISNUMBER({col}{row}), {col}{row}>2147483647), "Amount exceeds limit", "")'
+            f'IF(AND(ISNUMBER({col}{row}), {col}{row}>2147483647), "Amount must be less than 2,147,483,647", "")'
         ),
         "validation": {
             "validate": "custom",
