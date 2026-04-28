@@ -53,6 +53,7 @@ FORMAT_LOCKED_NORMAL = _base
 FORMAT_HYPERLINK = {**_base, **_hyperlink}
 FORMAT_UNLOCKED_NORMAL = _unlocked
 FORMAT_UNLOCKED_WRAP = {**_unlocked, "text_wrap": True}
+FORMAT_LOCKED_WRAP = {**_base, "text_wrap": True}
 FORMAT_CHECKBOX = {**_unlocked, "align": "center"}
 FORMAT_PIN_UNLOCKED = {**_unlocked, **_pin_num}
 FORMAT_DATE_UNLOCKED = {**_unlocked, **_date_num}
@@ -122,19 +123,17 @@ FORMAT_HYPERLINK_UNLOCKED = {**_unlocked, **_hyperlink}
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 PERMIT_COLUMNS = {
-    # col 0  A — Errors
     "errors": {
         "col_idx": 0,
         "header": "Errors",
         "src": None,
         "width": 25,
-        "fmt": {**FORMAT_LOCKED_NORMAL, "text_wrap": True},
+        "fmt": FORMAT_LOCKED_WRAP,
         "cell_type": "formula",
     },
-    # col 1  B — Resolved
-    "resolved": {
+    "ready": {
         "col_idx": 1,
-        "header": "Resolved",
+        "header": "Ready",
         "src": None,
         "width": 10,
         "fmt": FORMAT_CHECKBOX,
@@ -145,10 +144,9 @@ PERMIT_COLUMNS = {
             "show_error": True,
             "error_type": "stop",
             "error_title": "Errors not resolved",
-            "error_message": "This row still has errors. Fix them before marking resolved.",
+            "error_message": "This row still has errors. Fix them before marking ready.",
         },
     },
-    # col 2  C — PIN
     "pin": {
         "col_idx": 2,
         "header": "PIN",
@@ -158,14 +156,23 @@ PERMIT_COLUMNS = {
         "width": 25,
         "fmt": FORMAT_PIN_UNLOCKED,
         "cell_type": "pin",
+        # Use two COUNTIFs: one against bare 14-digit PINs (column A),
+        # one against hyphenated PINs (column B), so that copy-pastes
+        # from iasWorld or the public PIN detail page (which include
+        # hyphens) validate without stripping.
         "error_formula": lambda row, col: (
             f'IF(LEN(TRIM({col}{row}))=0, "Missing PIN", ""), '
             f'IF(LEN(SUBSTITUTE({col}{row},"-",""))<>14, "PIN is not 14 digits", ""), '
-            f'IF(SUMPRODUCT(--(\'Universe of Valid PINs\'!A:A=SUBSTITUTE({col}{row},"-","")))>0, "", "PIN is invalid")'
+            f'IF(OR(COUNTIF(\'Universe of Valid PINs\'!A:A,SUBSTITUTE({col}{row},"-","")),COUNTIF(\'Universe of Valid PINs\'!B:B,{col}{row})), "", "PIN is invalid")'
         ),
         "validation": {
             "validate": "custom",
-            "value": '=AND(LEN(SUBSTITUTE({COL}2,"-",""))=14,SUMPRODUCT(--((\'Universe of Valid PINs\'!$A:$A)=SUBSTITUTE({COL}2,"-","")))>0)',
+            "value": (
+                "=OR("
+                'COUNTIF(\'Universe of Valid PINs\'!$A:$A,SUBSTITUTE({COL}2,"-",""))>0,'
+                "COUNTIF('Universe of Valid PINs'!$B:$B,{COL}2)>0"
+                ")"
+            ),
             "ignore_blank": False,
             "show_error": True,
             "error_type": "stop",
@@ -173,7 +180,6 @@ PERMIT_COLUMNS = {
             "error_message": "PIN must be 14 digits (hyphens excluded) and exist in the Universe of Valid PINs.",
         },
     },
-    # col 3  D — Suggested PINs
     "suggested_pins": {
         "col_idx": 3,
         "header": "Suggested PINs",
@@ -193,16 +199,14 @@ PERMIT_COLUMNS = {
             "error_message": "Make sure that changes to PIN values are in PIN column.",
         },
     },
-    # col 4  E — CookViewer
     "cookviewer": {
         "col_idx": 4,
         "header": "CookViewer",
         "src": "property_address",
-        "width": 25,
+        "width": 30,
         "fmt": FORMAT_HYPERLINK,
         "cell_type": "hyperlink_locked",
     },
-    # col 5  F — Applicant Street Address
     "applicant_street_address": {
         "col_idx": 5,
         "header": "Applicant Street Address",
@@ -227,7 +231,6 @@ PERMIT_COLUMNS = {
             "error_message": "Address must be between 1 and 40 characters.",
         },
     },
-    # col 6  G — Local Permit No.
     "local_permit_no": {
         "col_idx": 6,
         "header": "Local Permit No.",
@@ -241,7 +244,6 @@ PERMIT_COLUMNS = {
             f'IF(LEN(TRIM({col}{row}))=0, "Missing Permit Number", "")'
         ),
     },
-    # col 7  H — Issue Date
     "issue_date": {
         "col_idx": 7,
         "header": "Issue Date",
@@ -264,7 +266,6 @@ PERMIT_COLUMNS = {
             "error_message": "Issue Date must be a valid date.",
         },
     },
-    # col 8  I — Amount
     "amount": {
         "col_idx": 8,
         "header": "Amount",
@@ -288,7 +289,6 @@ PERMIT_COLUMNS = {
             "error_message": "Amount must be a whole number between 1 and 2,147,483,647.",
         },
     },
-    # col 9  J — Applicant City, State, Zip
     "applicant_city_state_zip": {
         "col_idx": 9,
         "header": "Applicant City, State, Zip",
@@ -298,7 +298,6 @@ PERMIT_COLUMNS = {
         "fmt": FORMAT_UNLOCKED_NORMAL,
         "cell_type": "normal",
     },
-    # col 10  K — Matched Keywords
     "matched_keywords": {
         "col_idx": 10,
         "header": "Matched Keywords",
@@ -307,7 +306,6 @@ PERMIT_COLUMNS = {
         "fmt": FORMAT_LOCKED_NORMAL,
         "cell_type": "normal",
     },
-    # col 11  L — Work Description
     "work_description": {
         "col_idx": 11,
         "header": "Work Description",
@@ -332,7 +330,6 @@ PERMIT_COLUMNS = {
             "error_message": "Work Description must be between 1 and 2000 characters.",
         },
     },
-    # col 12  M — Applicant
     "applicant": {
         "col_idx": 12,
         "header": "Applicant",
@@ -356,7 +353,6 @@ PERMIT_COLUMNS = {
             "error_message": "Applicant must be between 1 and 50 characters.",
         },
     },
-    # col 13  N — Reviewer Name
     "reviewer_name": {
         "col_idx": 13,
         "header": "Reviewer Name",
@@ -391,7 +387,7 @@ PERMIT_COLUMNS_BY_IDX = sorted(
     PERMIT_COLUMNS.values(), key=lambda cd: cd["col_idx"]
 )
 
-# Number of columns to freeze on the left (Errors, Resolved, PIN)
+# Number of columns to freeze on the left (Errors, Ready, PIN)
 FREEZE_COLS = 3
 
 
@@ -726,7 +722,7 @@ def add_address_link_and_suggested_pins(df, chicago_pin_universe):
     # Always append ", Chicago, IL" to the search query for accurate results.
     df["property_address"] = df["property_address"].apply(
         lambda addr: (
-            f'=HYPERLINK("https://maps.cookcountyil.gov/cookviewer/?search={addr}, Chicago, IL", "Click here to open link")'
+            f'=HYPERLINK("https://maps.cookcountyil.gov/cookviewer/?search={addr}, Chicago, IL", "Click here to open CookViewer")'
             if pd.notna(addr)
             else ""
         )
@@ -874,12 +870,11 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
 
     #  "Permits" sheet
     # ------------------------------------------------------------------ #
-    # ------------------------------------------------------------------ #
 
     n_data_rows = len(df_all)
 
     ws = workbook.add_worksheet("Permits")
-    # Freeze columns A-C (Errors, Resolved, PIN)
+    # Freeze columns A-C (Errors, Ready, PIN)
     ws.freeze_panes(1, FREEZE_COLS)
 
     # --- Apply column widths and default formats ---
@@ -970,18 +965,18 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
     # Conditional formatting to produce excel colors which represent status of Permit/Pin.
     if n_data_rows > 0:
         errors_col = _col_letter("errors")
-        resolved_col = _col_letter("resolved")
+        ready_col = _col_letter("ready")
         last_col = max(cd["col_idx"] for cd in PERMIT_COLUMNS.values())
         for criteria, color in [
             (
-                f'=AND(${errors_col}2="",${resolved_col}2=FALSE)',
+                f'=AND(${errors_col}2="",${ready_col}2=FALSE)',
                 "#FFD5A8",
             ),  # no errors, unchecked → orange
             (f'=${errors_col}2<>""', "#FFB3B3"),  # has errors → red
             (
-                f'=AND(${resolved_col}2=TRUE,${errors_col}2="")',
+                f'=AND(${ready_col}2=TRUE,${errors_col}2="")',
                 "#B8D4E8",
-            ),  # resolved → blue
+            ),  # ready → blue
         ]:
             ws.conditional_format(
                 1,
@@ -1049,12 +1044,24 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
     }
     ws_pins = workbook.add_worksheet("Universe of Valid PINs")
     ws_pins.set_column(0, 0, 16, workbook.add_format(pin_str_fmt))
+    ws_pins.set_column(
+        1, 1, 20, workbook.add_format(pin_str_fmt)
+    )  # hyphenated column
     ws_pins.write(
         0, 0, "pin", workbook.add_format({**pin_str_fmt, "bold": True})
     )
+    ws_pins.write(
+        0,
+        1,
+        "pin_hyphenated",
+        workbook.add_format({**pin_str_fmt, "bold": True}),
+    )
     pin_fmt_u = workbook.add_format(pin_str_fmt)
     for i, pin in enumerate(chicago_pin_universe["pin"], start=1):
-        ws_pins.write(i, 0, str(pin).zfill(14), pin_fmt_u)
+        padded = str(pin).zfill(14)
+        hyphenated = f"{padded[0:2]}-{padded[2:4]}-{padded[4:7]}-{padded[7:10]}-{padded[10:14]}"
+        ws_pins.write(i, 0, padded, pin_fmt_u)
+        ws_pins.write(i, 1, hyphenated, pin_fmt_u)
     ws_pins.protect("")
 
     workbook.close()
