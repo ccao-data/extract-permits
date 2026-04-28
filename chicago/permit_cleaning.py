@@ -33,17 +33,14 @@ from pyathena.cursor import Cursor
 from pyathena.pandas.util import as_pandas
 
 # Shared property blocks
-_border = {
-    "border": 1,
-    "border_color": "#AAAAAA",
-}
 _base = {
     "font_name": "Arial",
     "locked": True,
     "align": "left",
     "text_wrap": False,
     "num_format": "0.##",
-    **_border,
+    "border": 1,
+    "border_color": "#AAAAAA",
 }
 _unlocked = {**_base, "locked": False}
 _hyperlink = {"font_color": "blue", "underline": True}
