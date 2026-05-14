@@ -25,6 +25,14 @@ click the **Run workflow** button to open a dropdown, and select your parameters
   not extensively tested the deduplication logic. Instead, we only query
   mutually-exclusive date ranges of permits to send to the Data Integrity team.
 
+Once the workflow finishes running, it will upload a ZIP archive containing the
+permits to an AWS S3 bucket. It will also send a message containing a link to
+the bucket to an AWS SNS topic dedicated to the workflow. If you subscribe to
+that AWS SNS topic, you will receive an email with this link when the workflow
+has finished running. Alternatively, the workflow will also print a link to the
+S3 bucket in its logs, so you can check the logs instead of subscribing to
+the SNS topic.
+
 ## Development
 
 Follow these instructions if you need to make changes to the permit extraction
