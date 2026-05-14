@@ -4,7 +4,7 @@ version = "0.0.1"
 description = "Extract process for Chicago permits"
 requires-python = ">=3.11"
 dependencies = [
-  "requests==2.31.*",
+  "requests==2.33.*",
   "pandas==2.1.*",
   "PyAthena==3.0.*",
   "XlsxWriter==3.2.*",
