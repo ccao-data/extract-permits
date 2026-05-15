@@ -114,17 +114,14 @@ FORMAT_HYPERLINK_UNLOCKED = {**_unlocked, **_hyperlink}
 #       (comma-separated) to include in the TEXTJOIN Errors formula for this
 #       column. Each clause should evaluate to an error message string or "".
 #       Omit if no per-cell validation is needed for this column.
+#       This runs in parallel to the python_validator and should be updated
+#       whenever those formulas are updated.
 #
 #   python_validator (callable, optional)
 #       A lambda(row_series) -> bool that returns True if this column's value
 #       in the given DataFrame row would trigger any clause in error_formula.
-#       Used by partition_permits() to split rows into upload vs. review files
-#       without re-implementing logic separately from error_formula. The two
-#       callables should always agree: if error_formula would produce a non-empty
-#       string for a cell, python_validator must return True for that row.
-#       Omit for columns that have no error_formula or whose errors cannot be
-#       checked without external state (e.g. PIN universe lookup, handled
-#       directly in partition_permits).
+#       This runs in parallel to the error_formula and should be updated
+#       whenever those formulas are updated.
 #
 #   validation (dict, optional)
 #       An xlsxwriter data_validation() options dict to apply to the column's
@@ -176,8 +173,8 @@ PERMIT_COLUMNS = {
             f'IF(LEN(SUBSTITUTE({col}{row},"-",""))<>14, "PIN is not 14 digits", ""), '
             f'IF(OR(COUNTIF(\'Universe of Valid PINs\'!A:A,SUBSTITUTE({col}{row},"-","")),COUNTIF(\'Universe of Valid PINs\'!B:B,{col}{row})), "", "PIN is invalid")'
         ),
-        # PIN universe membership (third IF above) is checked separately in
-        # partition_permits() because it requires external state (the universe df).
+        # PIN universe membership is checked separately in
+        # partition_permits() because it requires external universe_df.
         "python_validator": lambda r: (
             not str(r.get("pin") or "").strip()
             or len(str(r.get("pin") or "").replace("-", "")) != 14
@@ -433,10 +430,9 @@ FREEZE_COLS = 3
 def partition_permits(df: pd.DataFrame, chicago_pin_universe: pd.DataFrame):
     """Split df into (upload_df, review_df) based on whether each row passes
     all validations.  Derives checks from the python_validator key in each
-    PERMIT_COLUMNS entry so there is a single source of truth with error_formula.
-    Rows that pass every check go to upload_df; rows with any failure go to
-    review_df. PIN universe membership (the third IF in pin's error_formula)
-    requires external state, so it is checked here rather than in python_validator.
+    PERMIT_COLUMNS.
+    Rows that pass every check and the pin_universe match go to upload_df;
+    rows with any failure go to review_df.
     """
     valid_pins = set(chicago_pin_universe["pin"].astype(str).str.zfill(14))
 
@@ -847,8 +843,7 @@ def deduplicate_permits(cursor, df, start_date, end_date):
 
     # Stash the original amount before transformation. The iasworld-formatted
     # copy is used only for the deduplication join; because "amount" maps to
-    # itself (src == iasworld_name), it would otherwise be dropped along with
-    # the other iasworld join columns at the end of this function.
+    # itself. Without this, it returns NULL values when deduplicating.
     original_amount = new_permits["amount"].copy()
 
     for workbook_key, iasworld_key in workbook_to_iasworld_col_map.items():
@@ -888,8 +883,7 @@ def deduplicate_permits(cursor, df, start_date, end_date):
     for iasworld_key in workbook_to_iasworld_col_map.values():
         true_new_permits = true_new_permits.drop(iasworld_key, axis=1)
 
-    # Restore the original amount values (integer dollars) now that the
-    # iasworld-formatted "amount" column has been dropped above.
+    # Restore the original amount values.
     true_new_permits["amount"] = original_amount.reindex(
         true_new_permits.index
     )
@@ -925,7 +919,7 @@ def _build_textjoin_errors_formula(row: int) -> str:
 def save_xlsx_files(df, file_name, chicago_pin_universe, checked=False):
     """Write one workbook to `file_name` containing a Permits sheet and a
     Universe of Valid PINs sheet.  When `checked` is True, all Ready
-    checkboxes are pre-checked (used for the upload file)."""
+    checkboxes are pre-checked in the upload file."""
     df_all = df.reset_index(drop=True)
 
     print(f"  # rows: {len(df_all)}")
