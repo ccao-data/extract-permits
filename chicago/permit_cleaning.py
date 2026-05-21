@@ -307,7 +307,7 @@ PERMIT_COLUMNS = {
         "python_validator": lambda r: (
             pd.isna(r.get("amount"))
             or not str(r.get("amount") or "").strip()
-            or not (1 <= float(r["amount"]) <= 2147483647)
+            or not (1 <= float(r.get("amount", 1)) <= 2147483647)
         ),
         "validation": {
             "validate": "custom",
@@ -427,12 +427,17 @@ PERMIT_COLUMNS_BY_IDX = sorted(
 FREEZE_COLS = 3
 
 
-def partition_permits(df: pd.DataFrame, chicago_pin_universe: pd.DataFrame):
+def partition_permits(
+    df: pd.DataFrame,
+    chicago_pin_universe: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Split df into (upload_df, review_df) based on whether each row passes
     all validations.  Derives checks from the python_validator key in each
     PERMIT_COLUMNS.
-    Rows that pass every check and the pin_universe match go to upload_df;
-    rows with any failure go to review_df.
+    Rows that pass every check and the pin_universe match will be present in the
+    dataframe that comprises the first element of the returned tuple; rows with
+    any failures will be present as part of the dataframe in the second
+    element.
     """
     valid_pins = set(chicago_pin_universe["pin"].astype(str).str.zfill(14))
 
@@ -1234,4 +1239,5 @@ if __name__ == "__main__":
         review_df,
         os.path.join(output_folder, f"review_{base}permits.xlsx"),
         chicago_pin_universe,
+        checked=False,
     )
