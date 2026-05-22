@@ -428,8 +428,7 @@ FREEZE_COLS = 3
 
 
 def partition_permits(
-    df: pd.DataFrame,
-    chicago_pin_universe: pd.DataFrame
+    df: pd.DataFrame, chicago_pin_universe: pd.DataFrame
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Split df into (upload_df, review_df) based on whether each row passes
     all validations.  Derives checks from the python_validator key in each
