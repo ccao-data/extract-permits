@@ -33,7 +33,7 @@ env:
   WORKING_DIR: chicago
   S3_BUCKET: ccao-data-public-us-east-1
   S3_PREFIX: permits/chicago
-  UV_SYSTEM_PYTHON: 1
+  UV_FROZEN: "1"
   PYTHONUNBUFFERED: "1"
 
 jobs:
@@ -60,7 +60,7 @@ jobs:
           python-version-file: ${{ env.WORKING_DIR }}/.python-version
 
       - name: Install Python requirements
-        run: uv pip install .
+        run: uv sync
         shell: bash
         working-directory: ${{ env.WORKING_DIR }}
 
@@ -72,7 +72,8 @@ jobs:
 
       - name: Extract permits
         run: |
-          python3 permit_cleaning.py \
+          uv run \
+            python3 permit_cleaning.py \
             '${{ inputs.start_date }}' \
             '${{ inputs.end_date }}' \
             '${{ inputs.deduplicate }}'
