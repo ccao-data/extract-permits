@@ -175,9 +175,9 @@ PERMIT_COLUMNS = {
         ),
         # PIN universe membership is checked separately in
         # partition_permits() because it requires external universe_df.
-        "python_validator": lambda r: (
-            not str(r.get("pin") or "").strip()
-            or len(str(r.get("pin") or "").replace("-", "")) != 14
+        "python_validator": lambda r, col: (
+            not str(r.get(col) or "").strip()
+            or len(str(r.get(col) or "").replace("-", "")) != 14
         ),
         "validation": {
             "validate": "custom",
@@ -234,9 +234,9 @@ PERMIT_COLUMNS = {
             f'IF(LEN(TRIM({col}{row}))=0, "Missing Applicant Street Address", ""), '
             f'IF(LEN({col}{row})>40, "Address > 40 characters", "")'
         ),
-        "python_validator": lambda r: (
-            not str(r.get("applicant_street_address") or "").strip()
-            or len(str(r.get("applicant_street_address") or "")) > 40
+        "python_validator": lambda r, col: (
+            not str(r.get(col) or "").strip()
+            or len(str(r.get(col) or "")) > 40
         ),
         "validation": {
             "validate": "text length",
@@ -261,9 +261,7 @@ PERMIT_COLUMNS = {
         "error_formula": lambda row, col: (
             f'IF(LEN(TRIM({col}{row}))=0, "Missing Permit Number", "")'
         ),
-        "python_validator": lambda r: not str(
-            r.get("permit_no") or ""
-        ).strip(),
+        "python_validator": lambda r, col: not str(r.get(col) or "").strip(),
     },
     "issue_date": {
         "col_idx": 7,
@@ -277,9 +275,7 @@ PERMIT_COLUMNS = {
         "error_formula": lambda row, col: (
             f'IF(OR(NOT(ISNUMBER({col}{row})), {col}{row}=""), "Missing or Invalid Issue Date", "")'
         ),
-        "python_validator": lambda r: not str(
-            r.get("issue_date") or ""
-        ).strip(),
+        "python_validator": lambda r, col: not str(r.get(col) or "").strip(),
         "validation": {
             "validate": "date",
             "criteria": "greater than or equal to",
@@ -304,10 +300,10 @@ PERMIT_COLUMNS = {
             f'IF(AND(ISNUMBER({col}{row}), {col}{row}<1), "Amount must be at least 1", ""), '
             f'IF(AND(ISNUMBER({col}{row}), {col}{row}>2147483647), "Amount must be less than 2,147,483,647", "")'
         ),
-        "python_validator": lambda r: (
-            pd.isna(r.get("amount"))
-            or not str(r.get("amount") or "").strip()
-            or not (1 <= float(r.get("amount", 1)) <= 2147483647)
+        "python_validator": lambda r, col: (
+            pd.isna(r.get(col))
+            or not str(r.get(col) or "").strip()
+            or not (1 <= float(r.get(col, 1)) <= 2147483647)
         ),
         "validation": {
             "validate": "custom",
@@ -348,9 +344,9 @@ PERMIT_COLUMNS = {
             f'IF(LEN(TRIM({col}{row}))=0, "Missing Work Description", ""), '
             f'IF(LEN({col}{row})>2000, "Work Description > 2000 characters", "")'
         ),
-        "python_validator": lambda r: (
-            not str(r.get("work_description") or "").strip()
-            or len(str(r.get("work_description") or "")) > 2000
+        "python_validator": lambda r, col: (
+            not str(r.get(col) or "").strip()
+            or len(str(r.get(col) or "")) > 2000
         ),
         "validation": {
             "validate": "text length",
@@ -375,9 +371,9 @@ PERMIT_COLUMNS = {
             f'IF(LEN(TRIM({col}{row}))=0, "Missing Applicant", ""), '
             f'IF(LEN({col}{row})>50, "Applicant Name > 50 characters", "")'
         ),
-        "python_validator": lambda r: (
-            not str(r.get("applicant") or "").strip()
-            or len(str(r.get("applicant") or "")) > 50
+        "python_validator": lambda r, col: (
+            not str(r.get(col) or "").strip()
+            or len(str(r.get(col) or "")) > 50
         ),
         "validation": {
             "validate": "text length",
@@ -443,7 +439,7 @@ def partition_permits(
     def row_has_error(row):
         for col_def in PERMIT_COLUMNS_BY_IDX:
             validator = col_def.get("python_validator")
-            if validator and validator(row):
+            if validator and validator(row, col_def["src"]):
                 return True
         # PIN universe check (mirrors the third IF in pin's error_formula)
         pin_val = str(row.get("pin") or "").replace("-", "").zfill(14)
@@ -920,7 +916,7 @@ def _build_textjoin_errors_formula(row: int) -> str:
     return f'=_xlfn.TEXTJOIN(", ", TRUE, {clauses})'
 
 
-def save_xlsx_files(df, file_name, chicago_pin_universe, checked=False):
+def save_xlsx_file(df, file_name, chicago_pin_universe, checked=False):
     """Write one workbook to `file_name` containing a Permits sheet and a
     Universe of Valid PINs sheet.  When `checked` is True, all Ready
     checkboxes are pre-checked in the upload file."""
@@ -1219,14 +1215,14 @@ if __name__ == "__main__":
     )
 
     output_folder = (
-        datetime.today().date().strftime("files_for_review_%Y_%m_%d")
+        datetime.today().date().strftime("formatted_permits_%Y_%m_%d")
     )
     os.makedirs(output_folder, exist_ok=True)
 
     base = f"{start_date}_to_{end_date}_chicago_"
 
     print(f"Writing upload file ({len(upload_df)} rows):")
-    save_xlsx_files(
+    save_xlsx_file(
         upload_df,
         os.path.join(output_folder, f"upload_{base}permits.xlsx"),
         chicago_pin_universe,
@@ -1234,7 +1230,7 @@ if __name__ == "__main__":
     )
 
     print(f"Writing review file ({len(review_df)} rows):")
-    save_xlsx_files(
+    save_xlsx_file(
         review_df,
         os.path.join(output_folder, f"review_{base}permits.xlsx"),
         chicago_pin_universe,
