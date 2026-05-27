@@ -120,11 +120,7 @@ FORMAT_HYPERLINK_UNLOCKED = {**_unlocked, **_hyperlink}
 #   python_validator (callable, optional)
 #       A lambda(row_series, colname) -> bool that returns True if this column's
 #       value in the given DataFrame row would trigger any clause in
-#       error_formula. Uses the same (row, col) interface as error_formula:
-#       `col` is passed automatically from col_def["src"] by partition_permits,
-#       so lambdas should reference `col` rather than hardcoding the column name.
-#       This way a rename to the `src` key propagates here without a separate
-#       manual update. This runs in parallel to the error_formula and should be
+#       error_formula. This runs in parallel to the error_formula and should be
 #       updated whenever those formulas are updated.
 #
 #   validation (dict, optional)
