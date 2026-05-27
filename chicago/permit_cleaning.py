@@ -118,10 +118,10 @@ FORMAT_HYPERLINK_UNLOCKED = {**_unlocked, **_hyperlink}
 #       whenever those formulas are updated.
 #
 #   python_validator (callable, optional)
-#       A lambda(row_series) -> bool that returns True if this column's value
-#       in the given DataFrame row would trigger any clause in error_formula.
-#       This runs in parallel to the error_formula and should be updated
-#       whenever those formulas are updated.
+#       A lambda(row_series, colname) -> bool that returns True if this column's
+#       value in the given DataFrame row would trigger any clause in
+#       error_formula. This runs in parallel to the error_formula and should be
+#       updated whenever those formulas are updated.
 #
 #   validation (dict, optional)
 #       An xlsxwriter data_validation() options dict to apply to the column's
