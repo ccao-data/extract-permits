@@ -120,7 +120,11 @@ FORMAT_HYPERLINK_UNLOCKED = {**_unlocked, **_hyperlink}
 #   python_validator (callable, optional)
 #       A lambda(row_series, colname) -> bool that returns True if this column's
 #       value in the given DataFrame row would trigger any clause in
-#       error_formula. This runs in parallel to the error_formula and should be
+#       error_formula. Uses the same (row, col) interface as error_formula:
+#       `col` is passed automatically from col_def["src"] by partition_permits,
+#       so lambdas should reference `col` rather than hardcoding the column name.
+#       This way a rename to the `src` key propagates here without a separate
+#       manual update. This runs in parallel to the error_formula and should be
 #       updated whenever those formulas are updated.
 #
 #   validation (dict, optional)
@@ -839,56 +843,48 @@ def deduplicate_permits(cursor, df, start_date, end_date):
         for col in PERMIT_COLUMNS.values()
         if col.get("src") and col.get("iasworld_name")
     }
-    new_permits = df.copy()
+    iasworld_cols = list(workbook_to_iasworld_col_map.values())
 
-    # Stash the original amount before transformation. The iasworld-formatted
-    # copy is used only for the deduplication join; because "amount" maps to
-    # itself. Without this, it returns NULL values when deduplicating.
-    original_amount = new_permits["amount"].copy()
-
-    for workbook_key, iasworld_key in workbook_to_iasworld_col_map.items():
-        new_permits[iasworld_key] = new_permits[workbook_key]
-
-    # Transform new columns to ensure they match the iasworld formatting
-    new_permits["amount"] = new_permits["amount"].apply(
+    # Build a join-key DataFrame with iasworld column names and formatting.
+    # Using a separate DataFrame (rather than adding columns to df) avoids
+    # name collisions when a src name equals its iasworld_name (e.g. "amount").
+    join_keys = pd.DataFrame(
+        {
+            iasworld: df[src]
+            for src, iasworld in workbook_to_iasworld_col_map.items()
+        }
+    )
+    join_keys["amount"] = join_keys["amount"].apply(
         lambda x: decimal.Decimal("{:.2f}".format(x))
         if not pd.isnull(x)
         else x
     )
-    new_permits["permdt"] = (
-        pd.to_datetime(new_permits["permdt"], dayfirst=False)
+    join_keys["permdt"] = (
+        pd.to_datetime(join_keys["permdt"], dayfirst=False)
         .dt.strftime("%Y-%m-%d %H:%M:%S.%f")
         .str[:-3]
     )
-    new_permits["note2"] = new_permits["note2"] + ",,CHICAGO, IL"
-    new_permits["user43"] = (
-        new_permits["user43"]
+    join_keys["note2"] = join_keys["note2"] + ",,CHICAGO, IL"
+    join_keys["user43"] = (
+        join_keys["user43"]
         # Replace special characters that Smartfile removes
         .str.replace(r"""[():;+#*&'"@½]""", "", regex=True)
         # Truncate description to match Smartfile length limit
         .str.slice(0, 259)
     )
 
-    # Antijoin new_permits to existing_permits to find permits that do
-    # not exist in iasworld
-    merged_permits = pd.merge(
-        new_permits,
-        existing_permits,
+    # Antijoin: drop_duplicates on the right side ensures each row in
+    # join_keys appears exactly once in the merge result, so the boolean
+    # mask aligns directly with df.
+    merged = pd.merge(
+        join_keys,
+        existing_permits[iasworld_cols].drop_duplicates(),
         how="left",
-        on=list(workbook_to_iasworld_col_map.values()),
+        on=iasworld_cols,
         indicator=True,
     )
-    true_new_permits = merged_permits[merged_permits["_merge"] == "left_only"]
-    true_new_permits = true_new_permits.drop("_merge", axis=1)
-    for iasworld_key in workbook_to_iasworld_col_map.values():
-        true_new_permits = true_new_permits.drop(iasworld_key, axis=1)
-
-    # Restore the original amount values.
-    true_new_permits["amount"] = original_amount.reindex(
-        true_new_permits.index
-    )
-
-    return true_new_permits
+    is_new = (merged["_merge"] == "left_only").values
+    return df[is_new].reset_index(drop=True)
 
 
 def gen_file_base_name(start_date, end_date):
