@@ -846,8 +846,8 @@ def deduplicate_permits(cursor, df, start_date, end_date):
     iasworld_cols = list(workbook_to_iasworld_col_map.values())
 
     # Build a join-key DataFrame with iasworld column names and formatting.
-    # Using a separate DataFrame (rather than adding columns to df) avoids
-    # name collisions when a src name equals its iasworld_name (e.g. "amount").
+    # Using a separate DataFrame  avoids name collisions when a src name
+    # equals its iasworld_name (e.g. "amount").
     join_keys = pd.DataFrame(
         {
             iasworld: df[src]
@@ -874,8 +874,7 @@ def deduplicate_permits(cursor, df, start_date, end_date):
     )
 
     # Antijoin: drop_duplicates on the right side ensures each row in
-    # join_keys appears exactly once in the merge result, so the boolean
-    # mask aligns directly with df.
+    # join_keys appears exactly once in the merge result.
     merged = pd.merge(
         join_keys,
         existing_permits[iasworld_cols].drop_duplicates(),
