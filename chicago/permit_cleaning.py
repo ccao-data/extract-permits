@@ -114,6 +114,14 @@ FORMAT_HYPERLINK_UNLOCKED = {**_unlocked, **_hyperlink}
 #       (comma-separated) to include in the TEXTJOIN Errors formula for this
 #       column. Each clause should evaluate to an error message string or "".
 #       Omit if no per-cell validation is needed for this column.
+#       This runs in parallel to the python_validator and should be updated
+#       whenever those formulas are updated.
+#
+#   python_validator (callable, optional)
+#       A lambda(row_series, colname) -> bool that returns True if this column's
+#       value in the given DataFrame row would trigger any clause in
+#       error_formula. This runs in parallel to the error_formula and should be
+#       updated whenever those formulas are updated.
 #
 #   validation (dict, optional)
 #       An xlsxwriter data_validation() options dict to apply to the column's
@@ -164,6 +172,12 @@ PERMIT_COLUMNS = {
             f'IF(LEN(TRIM({col}{row}))=0, "Missing PIN", ""), '
             f'IF(LEN(SUBSTITUTE({col}{row},"-",""))<>14, "PIN is not 14 digits", ""), '
             f'IF(OR(COUNTIF(\'Universe of Valid PINs\'!A:A,SUBSTITUTE({col}{row},"-","")),COUNTIF(\'Universe of Valid PINs\'!B:B,{col}{row})), "", "PIN is invalid")'
+        ),
+        # PIN universe membership is checked separately in
+        # partition_permits() because it requires external universe_df.
+        "python_validator": lambda r, col: (
+            not str(r.get(col) or "").strip()
+            or len(str(r.get(col) or "").replace("-", "")) != 14
         ),
         "validation": {
             "validate": "custom",
@@ -220,6 +234,10 @@ PERMIT_COLUMNS = {
             f'IF(LEN(TRIM({col}{row}))=0, "Missing Applicant Street Address", ""), '
             f'IF(LEN({col}{row})>40, "Address > 40 characters", "")'
         ),
+        "python_validator": lambda r, col: (
+            not str(r.get(col) or "").strip()
+            or len(str(r.get(col) or "")) > 40
+        ),
         "validation": {
             "validate": "text length",
             "criteria": "between",
@@ -243,6 +261,7 @@ PERMIT_COLUMNS = {
         "error_formula": lambda row, col: (
             f'IF(LEN(TRIM({col}{row}))=0, "Missing Permit Number", "")'
         ),
+        "python_validator": lambda r, col: not str(r.get(col) or "").strip(),
     },
     "issue_date": {
         "col_idx": 7,
@@ -256,6 +275,7 @@ PERMIT_COLUMNS = {
         "error_formula": lambda row, col: (
             f'IF(OR(NOT(ISNUMBER({col}{row})), {col}{row}=""), "Missing or Invalid Issue Date", "")'
         ),
+        "python_validator": lambda r, col: not str(r.get(col) or "").strip(),
         "validation": {
             "validate": "date",
             "criteria": "greater than or equal to",
@@ -279,6 +299,11 @@ PERMIT_COLUMNS = {
             f'IF(OR({col}{row}="", NOT(ISNUMBER({col}{row}))), "Missing Amount", ""), '
             f'IF(AND(ISNUMBER({col}{row}), {col}{row}<1), "Amount must be at least 1", ""), '
             f'IF(AND(ISNUMBER({col}{row}), {col}{row}>2147483647), "Amount must be less than 2,147,483,647", "")'
+        ),
+        "python_validator": lambda r, col: (
+            pd.isna(r.get(col))
+            or not str(r.get(col) or "").strip()
+            or not (1 <= float(r.get(col, 1)) <= 2147483647)
         ),
         "validation": {
             "validate": "custom",
@@ -319,6 +344,10 @@ PERMIT_COLUMNS = {
             f'IF(LEN(TRIM({col}{row}))=0, "Missing Work Description", ""), '
             f'IF(LEN({col}{row})>2000, "Work Description > 2000 characters", "")'
         ),
+        "python_validator": lambda r, col: (
+            not str(r.get(col) or "").strip()
+            or len(str(r.get(col) or "")) > 2000
+        ),
         "validation": {
             "validate": "text length",
             "criteria": "between",
@@ -335,12 +364,17 @@ PERMIT_COLUMNS = {
         "header": "Applicant",
         "src": "applicant",
         "city_name": "contact_1_name",
+        "iasworld_name": "user21",
         "width": 35,
         "fmt": FORMAT_UNLOCKED_WRAP,
         "cell_type": "normal",
         "error_formula": lambda row, col: (
             f'IF(LEN(TRIM({col}{row}))=0, "Missing Applicant", ""), '
             f'IF(LEN({col}{row})>50, "Applicant Name > 50 characters", "")'
+        ),
+        "python_validator": lambda r, col: (
+            not str(r.get(col) or "").strip()
+            or len(str(r.get(col) or "")) > 50
         ),
         "validation": {
             "validate": "text length",
@@ -388,6 +422,34 @@ PERMIT_COLUMNS_BY_IDX = sorted(
 
 # Number of columns to freeze on the left (Errors, Ready, PIN)
 FREEZE_COLS = 3
+
+
+def partition_permits(
+    df: pd.DataFrame, chicago_pin_universe: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split df into (upload_df, review_df) based on whether each row passes
+    all validations.  Derives checks from the python_validator key in each
+    PERMIT_COLUMNS.
+    Rows that pass every check and the pin_universe match will be present in the
+    dataframe that comprises the first element of the returned tuple; rows with
+    any failures will be present as part of the dataframe in the second
+    element.
+    """
+    valid_pins = set(chicago_pin_universe["pin"].astype(str).str.zfill(14))
+
+    def row_has_error(row):
+        for col_def in PERMIT_COLUMNS_BY_IDX:
+            validator = col_def.get("python_validator")
+            if validator and validator(row, col_def["src"]):
+                return True
+        # PIN universe check (mirrors the third IF in pin's error_formula)
+        pin_val = str(row.get("pin") or "").replace("-", "").zfill(14)
+        if pin_val not in valid_pins:
+            return True
+        return False
+
+    mask = df.apply(row_has_error, axis=1)
+    return df[~mask].reset_index(drop=True), df[mask].reset_index(drop=True)
 
 
 def parse_args() -> tuple[str, str, bool]:
@@ -762,10 +824,10 @@ def deduplicate_permits(cursor, df, start_date, end_date):
                 parid,
                 permdt,
                 amount,
-                note2,
-                user21,
-                user28,
-                user43
+                note2,   -- applicant street address
+                user21,  -- applicant
+                user28,  -- local permit number
+                user43   -- work description
             FROM iasworld.permit
             WHERE permdt BETWEEN %(start_date)s AND %(end_date)s
         """,
@@ -778,45 +840,47 @@ def deduplicate_permits(cursor, df, start_date, end_date):
         for col in PERMIT_COLUMNS.values()
         if col.get("src") and col.get("iasworld_name")
     }
-    new_permits = df.copy()
-    for workbook_key, iasworld_key in workbook_to_iasworld_col_map.items():
-        new_permits[iasworld_key] = new_permits[workbook_key]
+    iasworld_cols = list(workbook_to_iasworld_col_map.values())
 
-    # Transform new columns to ensure they match the iasworld formatting
-    new_permits["amount"] = new_permits["amount"].apply(
+    # Build a join-key DataFrame with iasworld column names and formatting.
+    # Using a separate DataFrame avoids name collisions when a src name
+    # equals its iasworld_name (e.g. "amount").
+    join_keys = pd.DataFrame(
+        {
+            iasworld: df[src]
+            for src, iasworld in workbook_to_iasworld_col_map.items()
+        }
+    )
+    join_keys["amount"] = join_keys["amount"].apply(
         lambda x: decimal.Decimal("{:.2f}".format(x))
         if not pd.isnull(x)
         else x
     )
-    new_permits["permdt"] = (
-        pd.to_datetime(new_permits["permdt"], dayfirst=False)
+    join_keys["permdt"] = (
+        pd.to_datetime(join_keys["permdt"], dayfirst=False)
         .dt.strftime("%Y-%m-%d %H:%M:%S.%f")
         .str[:-3]
     )
-    new_permits["note2"] = new_permits["note2"] + ",,CHICAGO, IL"
-    new_permits["user43"] = (
-        new_permits["user43"]
+    join_keys["note2"] = join_keys["note2"] + ",,CHICAGO, IL"
+    join_keys["user43"] = (
+        join_keys["user43"]
         # Replace special characters that Smartfile removes
         .str.replace(r"""[():;+#*&'"@½]""", "", regex=True)
         # Truncate description to match Smartfile length limit
         .str.slice(0, 259)
     )
 
-    # Antijoin new_permits to existing_permits to find permits that do
-    # not exist in iasworld
-    merged_permits = pd.merge(
-        new_permits,
-        existing_permits,
+    # Antijoin: drop_duplicates on the right side ensures each row in
+    # join_keys appears exactly once in the merge result.
+    merged = pd.merge(
+        join_keys,
+        existing_permits[iasworld_cols].drop_duplicates(),
         how="left",
-        on=list(workbook_to_iasworld_col_map.values()),
+        on=iasworld_cols,
         indicator=True,
     )
-    true_new_permits = merged_permits[merged_permits["_merge"] == "left_only"]
-    true_new_permits = true_new_permits.drop("_merge", axis=1)
-    for iasworld_key in workbook_to_iasworld_col_map.values():
-        true_new_permits = true_new_permits.drop(iasworld_key, axis=1)
-
-    return true_new_permits
+    is_new = (merged["_merge"] == "left_only").values
+    return df[is_new].reset_index(drop=True)
 
 
 def gen_file_base_name(start_date, end_date):
@@ -844,17 +908,14 @@ def _build_textjoin_errors_formula(row: int) -> str:
     return f'=_xlfn.TEXTJOIN(", ", TRUE, {clauses})'
 
 
-def save_xlsx_files(df, file_base_name, chicago_pin_universe):
+def save_xlsx_file(df, file_name, chicago_pin_universe, checked=False):
+    """Write one workbook to `file_name` containing a Permits sheet and a
+    Universe of Valid PINs sheet.  When `checked` is True, all Ready
+    checkboxes are pre-checked in the upload file."""
     df_all = df.reset_index(drop=True)
 
-    print(f"# rows total: {len(df_all)}")
+    print(f"  # rows: {len(df_all)}")
 
-    output_folder = (
-        datetime.today().date().strftime("files_for_review_%Y_%m_%d")
-    )
-    os.makedirs(output_folder, exist_ok=True)
-
-    file_name = os.path.join(output_folder, file_base_name + "permits.xlsx")
     workbook = xlsxwriter.Workbook(file_name)
 
     # Define the xlsxwriter format objects by the id of the
@@ -906,7 +967,9 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
                 continue
 
             if cell_type == "checkbox":
-                ws.insert_checkbox(xl_row, ci, False, get_fmt(FORMAT_CHECKBOX))
+                ws.insert_checkbox(
+                    xl_row, ci, checked, get_fmt(FORMAT_CHECKBOX)
+                )
                 continue
 
             # --- Source-value cells ---
@@ -995,6 +1058,11 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
             v = col_def.get("validation")
             if v is None:
                 continue
+            # The Ready column validation blocks checking when errors exist.
+            # In the upload file all rows are pre-checked and error-free, so
+            # skip it to avoid Excel resetting the checkbox state on open.
+            if checked and col_def["cell_type"] == "checkbox":
+                continue
             v = copy.deepcopy(v)
             show_error = v.pop("show_error", True)
             error_type = v.pop("error_type", "stop")
@@ -1064,7 +1132,7 @@ def save_xlsx_files(df, file_base_name, chicago_pin_universe):
     ws_pins.protect("")
 
     workbook.close()
-    print(f"Saved workbook to {file_name}")
+    print(f"  Saved to {file_name}")
 
 
 if __name__ == "__main__":
@@ -1131,6 +1199,32 @@ if __name__ == "__main__":
     else:
         permits_final = permits_with_links
 
-    file_base_name = gen_file_base_name(start_date, end_date)
+    upload_df, review_df = partition_permits(
+        permits_final, chicago_pin_universe
+    )
+    print(
+        f"Partition results — upload: {len(upload_df)}, review: {len(review_df)}"
+    )
 
-    save_xlsx_files(permits_final, file_base_name, chicago_pin_universe)
+    output_folder = (
+        datetime.today().date().strftime("formatted_permits_%Y_%m_%d")
+    )
+    os.makedirs(output_folder, exist_ok=True)
+
+    base = f"{start_date}_to_{end_date}_chicago_"
+
+    print(f"Writing upload file ({len(upload_df)} rows):")
+    save_xlsx_file(
+        upload_df,
+        os.path.join(output_folder, f"upload_{base}permits.xlsx"),
+        chicago_pin_universe,
+        checked=True,
+    )
+
+    print(f"Writing review file ({len(review_df)} rows):")
+    save_xlsx_file(
+        review_df,
+        os.path.join(output_folder, f"review_{base}permits.xlsx"),
+        chicago_pin_universe,
+        checked=False,
+    )
