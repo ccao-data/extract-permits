@@ -364,6 +364,7 @@ PERMIT_COLUMNS = {
         "header": "Applicant",
         "src": "applicant",
         "city_name": "contact_1_name",
+        "iasworld_name": "user21",
         "width": 35,
         "fmt": FORMAT_UNLOCKED_WRAP,
         "cell_type": "normal",
@@ -823,10 +824,10 @@ def deduplicate_permits(cursor, df, start_date, end_date):
                 parid,
                 permdt,
                 amount,
-                note2,
-                user21,
-                user28,
-                user43
+                note2,   -- applicant street address
+                user21,  -- applicant
+                user28,  -- local permit number
+                user43   -- work description
             FROM iasworld.permit
             WHERE permdt BETWEEN %(start_date)s AND %(end_date)s
         """,
@@ -842,7 +843,7 @@ def deduplicate_permits(cursor, df, start_date, end_date):
     iasworld_cols = list(workbook_to_iasworld_col_map.values())
 
     # Build a join-key DataFrame with iasworld column names and formatting.
-    # Using a separate DataFrame  avoids name collisions when a src name
+    # Using a separate DataFrame avoids name collisions when a src name
     # equals its iasworld_name (e.g. "amount").
     join_keys = pd.DataFrame(
         {
