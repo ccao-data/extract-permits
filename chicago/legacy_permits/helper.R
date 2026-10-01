@@ -62,7 +62,6 @@ expand_pins <- function(df_raw) {
 }
 
 
-
 normalize_pin <- function(pin_vec) {
   # remove - from PIN
   pin_vec <- gsub("-", "", pin_vec)
