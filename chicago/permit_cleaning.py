@@ -527,6 +527,7 @@ def pull_existing_pins_from_athena(cursor: Cursor, year: str) -> pd.DataFrame:
         AND u.year = a.year
     WHERE u.triad_name = 'City'
     AND u.year = %(year)s
+    ORDER BY u.pin, a.prop_address_full
     """
     cursor.execute(SQL_QUERY, {"year": year})
     chicago_pin_universe = as_pandas(cursor)
